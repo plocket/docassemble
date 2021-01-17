@@ -1,12 +1,12 @@
 import types
 import markdown
 from mdx_smartypants import SmartypantsExt
-import pattern.en
-import pattern.es
-import pattern.de
-import pattern.fr
-import pattern.it
-import pattern.nl
+import docassemble_pattern.en
+import docassemble_pattern.es
+import docassemble_pattern.de
+import docassemble_pattern.fr
+import docassemble_pattern.it
+import docassemble_pattern.nl
 import re
 from pylatex.utils import escape_latex
 #import operator
@@ -1184,18 +1184,18 @@ def update_terms(dictionary, auto=False, language='*'):
                 for term, definition in termitems:
                     lower_term = re.sub(r'\s+', ' ', term.lower())
                     if auto:
-                        terms[lower_term] = {'definition': str(definition), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                        terms[lower_term] = {'definition': str(definition), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
                     else:
-                        terms[lower_term] = {'definition': str(definition), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                        terms[lower_term] = {'definition': str(definition), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
             else:
                 raise DAError("update_terms: terms organized as a list must be a list of dictionary items.")
     elif isinstance(dictionary, dict):
         for term in dictionary:
             lower_term = re.sub(r'\s+', ' ', term.lower())
             if auto:
-                terms[lower_term] = {'definition': str(dictionary[term]), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                terms[lower_term] = {'definition': str(dictionary[term]), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
             else:
-                terms[lower_term] = {'definition': str(dictionary[term]), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                terms[lower_term] = {'definition': str(dictionary[term]), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
     else:
         raise DAError("update_terms: terms must be organized as a dictionary or a list.")
 
@@ -1474,6 +1474,7 @@ server.wait_for_task = null_func
 server.worker_convert = null_func
 server.write_answer_json = null_func
 server.write_record = null_func
+server.to_text = null_func
 
 def write_record(key, data):
     """Stores the data in a SQL database for later retrieval with the
@@ -1691,7 +1692,7 @@ this_thread.gathering_mode = dict()
 this_thread.global_vars = GenericObject()
 this_thread.current_variable = list()
 this_thread.open_files = set()
-this_thread.markdown = markdown.Markdown(extensions=[smartyext, 'markdown.extensions.sane_lists', 'markdown.extensions.tables', 'markdown.extensions.attr_list'], output_format='html5')
+this_thread.markdown = markdown.Markdown(extensions=[smartyext, 'markdown.extensions.sane_lists', 'markdown.extensions.tables', 'markdown.extensions.attr_list', 'markdown.extensions.md_in_html'], output_format='html5')
 this_thread.saved_files = dict()
 this_thread.message_log = list()
 this_thread.misc = dict()
@@ -1889,7 +1890,7 @@ def roman(num, case=None):
     if not 0 < num < 4000:
         raise ValueError("Argument must be between 1 and 3999")
     ints = (1000, 900, 500,  400, 100,  90, 50,  40, 10,  9,   5,   4,  1)
-    nums = ('M',  'CM', 'D', 'CD', 'C','XC','L','XL','X','IX','V','IV','I')
+    nums = ('M', 'CM', 'D', 'CD', 'C','XC','L','XL','X','IX','V','IV','I')
     result = ""
     for i in range(len(ints)):
         count = int(num / ints[i])
@@ -2079,7 +2080,7 @@ def reset_local_variables():
     this_thread.current_package = None
     this_thread.current_question = None
     this_thread.internal = dict()
-    this_thread.markdown = markdown.Markdown(extensions=[smartyext, 'markdown.extensions.sane_lists', 'markdown.extensions.tables', 'markdown.extensions.attr_list'], output_format='html5')
+    this_thread.markdown = markdown.Markdown(extensions=[smartyext, 'markdown.extensions.sane_lists', 'markdown.extensions.tables', 'markdown.extensions.attr_list', 'markdown.extensions.md_in_html'], output_format='html5')
     this_thread.prevent_going_back = False
 
 def prevent_going_back():
@@ -2189,10 +2190,6 @@ def comma_and_list_en(*pargs, **kwargs):
     Use the optional argument oxford=False if you do not want a comma before the "and."
     See also comma_list()."""
     ensure_definition(*pargs, **kwargs)
-    if 'oxford' in kwargs and kwargs['oxford'] == False:
-        extracomma = ""
-    else:
-        extracomma = ","
     if 'and_string' in kwargs:
         and_string = kwargs['and_string']
     else:
@@ -2201,6 +2198,10 @@ def comma_and_list_en(*pargs, **kwargs):
         comma_string = kwargs['comma_string']
     else:
         comma_string = ", "
+    if 'oxford' in kwargs and kwargs['oxford'] == False:
+        extracomma = ""
+    else:
+        extracomma = comma_string.strip()
     if 'before_and' in kwargs:
         before_and = kwargs['before_and']
     else:
@@ -2277,7 +2278,7 @@ def need(*pargs):
 def pickleable_objects(input_dict):
     output_dict = dict()
     for key in input_dict:
-        if isinstance(input_dict[key], (types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, types.ClassType, FileType)):
+        if isinstance(input_dict[key], (types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, FileType)):
             continue
         if key == "__builtins__":
             continue
@@ -2540,7 +2541,7 @@ def verb_present_en(*pargs, **kwargs):
         new_args.append(str(arg))
     if len(new_args) < 2:
         new_args.append('3sg')
-    output = pattern.en.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.en.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2553,7 +2554,7 @@ def verb_past_en(*pargs, **kwargs):
         new_args.append(arg)
     if len(new_args) < 2:
         new_args.append('3sgp')
-    output = pattern.en.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.en.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2564,7 +2565,7 @@ def noun_plural_en(*pargs, **kwargs):
     noun = noun_singular_en(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.en.pluralize(str(noun))
+    output = docassemble_pattern.en.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2574,7 +2575,7 @@ def noun_singular_en(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.en.singularize(str(pargs[0]))
+    output = docassemble_pattern.en.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2582,7 +2583,7 @@ def noun_singular_en(*pargs, **kwargs):
 
 def indefinite_article_en(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.en.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.en.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2597,7 +2598,7 @@ def verb_present_es(*pargs, **kwargs):
         new_args.append('3sg')
     if new_args[1] == 'pl':
         new_args[1] = '3pl'
-    output = pattern.es.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.es.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2612,7 +2613,7 @@ def verb_past_es(*pargs, **kwargs):
         new_args.append('3sgp')
     if new_args[1] == 'ppl':
         new_args[1] = '3ppl'
-    output = pattern.es.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.es.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2623,7 +2624,7 @@ def noun_plural_es(*pargs, **kwargs):
     noun = noun_singular_es(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.es.pluralize(str(noun))
+    output = docassemble_pattern.es.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2633,7 +2634,7 @@ def noun_singular_es(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.es.singularize(str(pargs[0]))
+    output = docassemble_pattern.es.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2641,7 +2642,7 @@ def noun_singular_es(*pargs, **kwargs):
 
 def indefinite_article_es(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.es.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.es.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2656,7 +2657,7 @@ def verb_present_de(*pargs, **kwargs):
         new_args.append('3sg')
     if new_args[1] == 'pl':
         new_args[1] = '3pl'
-    output = pattern.de.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.de.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2671,7 +2672,7 @@ def verb_past_de(*pargs, **kwargs):
         new_args.append('3sgp')
     if new_args[1] == 'ppl':
         new_args[1] = '3ppl'
-    output = pattern.de.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.de.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2682,7 +2683,7 @@ def noun_plural_de(*pargs, **kwargs):
     noun = noun_singular_de(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.de.pluralize(str(noun))
+    output = docassemble_pattern.de.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2692,7 +2693,7 @@ def noun_singular_de(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.de.singularize(str(pargs[0]))
+    output = docassemble_pattern.de.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2700,7 +2701,7 @@ def noun_singular_de(*pargs, **kwargs):
 
 def indefinite_article_de(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.de.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.de.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2715,7 +2716,7 @@ def verb_present_fr(*pargs, **kwargs):
         new_args.append('3sg')
     if new_args[1] == 'pl':
         new_args[1] = '3pl'
-    output = pattern.fr.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.fr.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2730,7 +2731,7 @@ def verb_past_fr(*pargs, **kwargs):
         new_args.append('3sgp')
     if new_args[1] == 'ppl':
         new_args[1] = '3ppl'
-    output = pattern.fr.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.fr.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2741,7 +2742,7 @@ def noun_plural_fr(*pargs, **kwargs):
     noun = noun_singular_fr(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.fr.pluralize(str(noun))
+    output = docassemble_pattern.fr.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2751,7 +2752,7 @@ def noun_singular_fr(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.fr.singularize(str(pargs[0]))
+    output = docassemble_pattern.fr.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2759,7 +2760,7 @@ def noun_singular_fr(*pargs, **kwargs):
 
 def indefinite_article_fr(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.fr.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.fr.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2774,7 +2775,7 @@ def verb_present_it(*pargs, **kwargs):
         new_args.append('3sg')
     if new_args[1] == 'pl':
         new_args[1] = '3pl'
-    output = pattern.it.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.it.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2789,7 +2790,7 @@ def verb_past_it(*pargs, **kwargs):
         new_args.append('3sgp')
     if new_args[1] == 'ppl':
         new_args[1] = '3ppl'
-    output = pattern.it.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.it.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2800,7 +2801,7 @@ def noun_plural_it(*pargs, **kwargs):
     noun = noun_singular_it(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.it.pluralize(str(noun))
+    output = docassemble_pattern.it.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2810,7 +2811,7 @@ def noun_singular_it(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.it.singularize(str(pargs[0]))
+    output = docassemble_pattern.it.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2818,7 +2819,7 @@ def noun_singular_it(*pargs, **kwargs):
 
 def indefinite_article_it(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.it.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.it.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2833,7 +2834,7 @@ def verb_present_nl(*pargs, **kwargs):
         new_args.append('3sg')
     if new_args[1] == 'pl':
         new_args[1] = '3pl'
-    output = pattern.nl.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.nl.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2848,7 +2849,7 @@ def verb_past_nl(*pargs, **kwargs):
         new_args.append('3sgp')
     if new_args[1] == 'ppl':
         new_args[1] = '3ppl'
-    output = pattern.nl.conjugate(*new_args, **kwargs)
+    output = docassemble_pattern.nl.conjugate(*new_args, **kwargs)
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2859,7 +2860,7 @@ def noun_plural_nl(*pargs, **kwargs):
     noun = noun_singular_nl(pargs[0])
     if len(pargs) >= 2 and pargs[1] == 1:
         return str(noun)
-    output = pattern.nl.pluralize(str(noun))
+    output = docassemble_pattern.nl.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2869,7 +2870,7 @@ def noun_singular_nl(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     if len(pargs) >= 2 and pargs[1] != 1:
         return pargs[0]
-    output = pattern.nl.singularize(str(pargs[0]))
+    output = docassemble_pattern.nl.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -2877,7 +2878,7 @@ def noun_singular_nl(*pargs, **kwargs):
 
 def indefinite_article_nl(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    output = pattern.nl.article(str(pargs[0]).lower()) + " " + str(pargs[0])
+    output = docassemble_pattern.nl.article(str(pargs[0]).lower()) + " " + str(pargs[0])
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return(capitalize(output))
     else:
@@ -4204,7 +4205,7 @@ def serializable_dict(user_dict, include_internal=False):
             continue
         if key == '__builtins__':
             continue
-        if type(data) in [types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, types.ClassType, FileType]:
+        if type(data) in [types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, FileType]:
             continue
         result_dict[key] = safe_json(data)
     return result_dict
@@ -4238,7 +4239,9 @@ def safe_json(the_object, level=0, is_key=False):
         for sub_object in the_object:
             new_list.append(safe_json(sub_object, level=level+1))
         return new_list
-    if type(the_object) in [types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, types.ClassType, FileType]:
+    if isinstance(the_object, TypeType):
+        return {'_class': 'type', 'name': class_name(the_object)}
+    if isinstance(the_object, (types.ModuleType, types.FunctionType, TypeType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType, FileType)):
         return 'None' if is_key else None
     if isinstance(the_object, datetime.datetime):
         serial = the_object.isoformat()
@@ -4283,6 +4286,13 @@ def referring_url(default=None, current=False):
 
 def type_name(the_object):
     name = str(type(the_object))
+    m = re.search(r'\'(.*)\'', name)
+    if m:
+        return m.group(1)
+    return name
+
+def class_name(the_object):
+    name = str(the_object)
     m = re.search(r'\'(.*)\'', name)
     if m:
         return m.group(1)

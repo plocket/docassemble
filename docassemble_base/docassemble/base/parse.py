@@ -46,7 +46,11 @@ from types import CodeType
 import pandas
 import dateutil.parser
 import pytz
+from itertools import groupby, chain
+from collections import namedtuple
 from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
+from docassemble_textstat.textstat import textstat
 RangeType = type(range(1,2))
 NoneType = type(None)
 
@@ -344,6 +348,9 @@ class InterviewSourceURL(InterviewSource):
                 return(new_source)
         return None
 
+def dummy_embed_input(status, variable):
+    return variable
+
 class InterviewStatus:
     def __init__(self, current_info=dict(), **kwargs):
         self.current_info = current_info
@@ -379,6 +386,8 @@ class InterviewStatus:
             else:
                 field_list = self.question.fields
             list_len = len(self.extras['list_collect'].elements)
+            if hasattr(self.extras['list_collect'], 'minimum_number') and self.extras['list_collect'].minimum_number is not None and self.extras['list_collect'].minimum_number > list_len:
+                list_len = self.extras['list_collect'].minimum_number
             if list_len == 0:
                 list_len = 1
             if self.extras['list_collect'].ask_object_type or not allow_append:
@@ -506,8 +515,8 @@ class InterviewStatus:
                                 checkboxes[safeid(from_safeid(field.saveas) + "[R" + myb64quote(repr(pair['key'])) + "]")] = 'False'
                     elif not self.extras['required'][field.number]:
                         checkboxes[field.saveas] = 'None'
-            if field.datatype == 'object_checkboxes':
-                datatypes[safeid(from_safeid(field.saveas) + ".gathered")] = 'boolean'
+                if field.datatype == 'object_checkboxes':
+                    datatypes[safeid(from_safeid(field.saveas) + ".gathered")] = 'boolean'
             if self.extras.get('list_collect_is_final', False):
                 if self.extras['list_collect'].ask_number:
                     datatypes[safeid(self.extras['list_collect'].instanceName + ".target_number")] = 'integer'
@@ -539,6 +548,8 @@ class InterviewStatus:
             allow_append = self.extras['list_collect_allow_append']
             iterator_re = re.compile(r"\[%s\]" % (self.extras['list_iterator'],))
             list_len = len(self.extras['list_collect'].elements)
+            if hasattr(self.extras['list_collect'], 'minimum_number') and self.extras['list_collect'].minimum_number is not None and self.extras['list_collect'].minimum_number > list_len:
+                list_len = self.extras['list_collect'].minimum_number
             if list_len == 0:
                 list_len = 1
             if self.extras['list_collect'].ask_object_type or not allow_append:
@@ -649,8 +660,65 @@ class InterviewStatus:
         self.orig_sought = question_result['orig_sought']
     def set_tracker(self, tracker):
         self.tracker = tracker
+    def get_history(self):
+        output = {'steps': []}
+        if self.question.from_source.path != self.question.interview.source.path and self.question.from_source.path is not None:
+            output['source_file'] = self.question.from_source.path
+        if hasattr(self.question, 'source_code') and self.question.source_code is not None:
+            output['source_code'] = self.question.source_code
+        index = 0
+        seeking_len = len(self.seeking)
+        if seeking_len:
+            starttime = self.seeking[0]['time']
+            for stage in self.seeking:
+                index += 1
+                if index < seeking_len and 'reason' in self.seeking[index] and self.seeking[index]['reason'] in ('asking', 'running') and self.seeking[index]['question'] is stage['question'] and 'question' in stage and 'reason' in stage and stage['reason'] == 'considering':
+                    continue
+                the_stage = {'time': "%.5fs" % (stage['time'] - starttime), 'index': index}
+                if 'question' in stage and 'reason' in stage and (index < (seeking_len - 1) or stage['question'] is not self.question):
+                    the_stage['reason'] = stage['reason']
+                    if stage['reason'] == 'initial':
+                        the_stage['reason_text'] = "Ran initial code"
+                    elif stage['reason'] == 'mandatory question':
+                        the_stage['reason_text'] = "Tried to ask mandatory question"
+                    elif stage['reason'] == 'mandatory code':
+                        the_stage['reason_text'] = "Tried to run mandatory code"
+                    elif stage['reason'] == 'asking':
+                        the_stage['reason_text'] = "Tried to ask question"
+                    elif stage['reason'] == 'running':
+                        the_stage['reason_text'] = "Tried to run block"
+                    elif stage['reason'] == 'considering':
+                        the_stage['reason_text'] = "Considered using block"
+                    elif stage['reason'] == 'objects from file':
+                        the_stage['reason_text'] = "Tried to load objects from file"
+                    elif stage['reason'] == 'data':
+                        the_stage['reason_text'] = "Tried to load data"
+                    elif stage['reason'] == 'objects':
+                        the_stage['reason_text'] = "Tried to load objects"
+                    elif stage['reason'] == 'result of multiple choice':
+                        the_stage['reason_text'] = "Followed the result of multiple choice selection"
+                    if stage['question'].from_source.path != self.question.interview.source.path and stage['question'].from_source.path is not None:
+                        the_stage['source_file'] = stage['question'].from_source.path
+                    if (not hasattr(stage['question'], 'source_code')) or stage['question'].source_code is None:
+                        the_stage['embedded'] = True
+                    else:
+                        the_stage['code'] = stage['question'].source_code
+                elif 'variable' in stage:
+                    the_stage['reason'] = 'needed'
+                    the_stage['reason_text'] = "Needed definition of"
+                    the_stage['variable_name'] = str(stage['variable'])
+                elif 'done' in stage:
+                    the_stage['reason'] = 'complete'
+                    the_stage['reason_text'] = "Completed processing"
+                else:
+                    continue
+                output['steps'].append(the_stage)
+        return output
     def as_data(self, the_user_dict, encode=True):
         result = dict(language=self.question.language)
+        debug = self.question.interview.debug
+        if debug:
+            output = dict(question='', help='')
         if 'progress' in the_user_dict['_internal']:
             result['progress'] = the_user_dict['_internal']['progress']
         if self.question.language in self.question.interview.default_validation_messages:
@@ -684,14 +752,66 @@ class InterviewStatus:
                     result['autoterms'][term] = vals['definition']
         if self.orig_sought is not None:
             result['event_list'] = [self.orig_sought]
-        for param in ('questionText', 'subquestionText', 'continueLabel', 'helpLabel'):
+        if 'action_buttons' in self.extras:
+            result['additional_buttons'] = []
+            for item in self.extras['action_buttons']:
+                new_item = copy.deepcopy(item)
+                new_item['label'] = docassemble.base.filter.markdown_to_html(item['label'], trim=True, do_terms=False, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += '<p>' + new_item['label'] + '</p>'
+        for param in ('questionText',):
             if hasattr(self, param) and getattr(self, param) is not None:
-                result[param] = getattr(self, param).rstrip()
+                result[param] = docassemble.base.filter.markdown_to_html(getattr(self, param).rstrip(), trim=True, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += result[param]
+        if hasattr(self, 'subquestionText') and self.subquestionText is not None:
+            if self.question.question_type == "fields":
+                embedder = dummy_embed_input
+            else:
+                embedder = None
+            result['subquestionText'] = docassemble.base.filter.markdown_to_html(self.subquestionText.rstrip(), status=self, verbatim=encode, embedder=embedder)
+            if debug:
+                output['question'] += result['subquestionText']
+        for param in ('continueLabel', 'helpLabel'):
+            if hasattr(self, param) and getattr(self, param) is not None:
+                result[param] = docassemble.base.filter.markdown_to_html(getattr(self, param).rstrip(), trim=True, do_terms=False, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += '<p>' + result[param] + '</p>'
         if 'menu_items' in self.extras and isinstance(self.extras['menu_items'], list):
             result['menu_items'] = self.extras['menu_items']
-        for param in ('rightText', 'underText', 'cssClass', 'tableCssClass', 'back_button_label', 'css', 'script'):
+        for param in ('cssClass', 'tableCssClass', 'css', 'script'):
             if param in self.extras and isinstance(self.extras[param], str):
                 result[param] = self.extras[param].rstrip()
+        for param in ('back_button_label',):
+            if param in self.extras and isinstance(self.extras[param], str):
+                result[param] = docassemble.base.filter.markdown_to_html(self.extras[param].rstrip(), trim=True, do_terms=False, status=self, verbatim=encode)
+        for param in ('rightText', 'underText'):
+            if param in self.extras and isinstance(self.extras[param], str):
+                result[param] = docassemble.base.filter.markdown_to_html(self.extras[param].rstrip(), status=self, verbatim=encode)
+                if debug:
+                    output['question'] += result[param]
+        if 'continueLabel' not in result:
+            if self.question.question_type == "review":
+                result['continueLabel'] = word('Resume')
+            else:
+                result['continueLabel'] = word('Continue')
+            if debug:
+                output['question'] += '<p>' + result['continueLabel'] + '</p>'
+        steps = the_user_dict['_internal']['steps'] - the_user_dict['_internal']['steps_offset']
+        if self.can_go_back and steps > 1:
+            result['allow_going_back'] = True
+            result['backTitle'] = word("Go back to the previous question")
+            back_button_val = self.extras.get('back_button', None)
+            if (back_button_val or (back_button_val is None and self.question.interview.question_back_button)):
+                result['questionBackButton'] = self.back
+        else:
+            result['allow_going_back'] = False
+        if self.question.question_type == "signature":
+            result['signaturePhrases'] = {
+                'clear': word('Clear'),
+                'noSignature': word("You must sign your name to continue."),
+                'loading': word('Loading.  Please wait . . . '),
+                }
         if 'questionMetadata' in self.extras:
             result['question_metadata'] = self.extras['questionMetadata']
         if 'segment' in self.extras:
@@ -719,13 +839,29 @@ class InterviewStatus:
                     if len(video_result) > 0:
                         the_help['video'] = [dict(url=x[0], mime_type=x[1]) for x in video_result]
                 if 'content' in help_text and help_text['content'] is not None:
-                    the_help['content'] = help_text['content'].rstrip()
+                    the_help['content'] = docassemble.base.filter.markdown_to_html(help_text['content'].rstrip(), status=self, verbatim=encode)
+                    if debug:
+                        output['help'] += the_help['content']
                 if 'heading' in help_text and help_text['heading'] is not None:
                     the_help['heading'] = help_text['heading'].rstrip()
+                    if debug:
+                        output['help'] += '<p>' + the_help['heading'] + '</p>'
+                elif len(self.helpText) > 1:
+                    the_help['heading'] = word('Help with this question')
                 result['helpText'].append(the_help)
+            result['help'] = dict()
+            if self.helpText[0]['label']:
+                result['help']['label'] = docassemble.base.filter.markdown_to_html(self.helpText[0]['label'], trim=True, do_terms=False, status=self, verbatim=encode)
+            else:
+                result['help']['label'] = self.question.help()
+            result['help']['title'] = word("Help is available for this question")
         if 'questionText' not in result and self.question.question_type == "signature":
             result['questionText'] = word('Sign Your Name')
+            if debug:
+                output['question'] += '<p>' + result['questionText'] + '</p>'
         result['questionType'] = self.question.question_type
+        if hasattr(self.question, 'question_variety'):
+            result['questionVariety'] = self.question.question_variety
         if self.question.is_mandatory or self.question.mandatory_code is not None:
             result['mandatory'] = True
         if hasattr(self.question, 'name'):
@@ -760,7 +896,17 @@ class InterviewStatus:
                 result['default_email'] = self.current_info['user']['email']
             for attachment in self.attachments:
                 the_attachment = dict(url=dict(), number=dict(), filename_with_extension=dict())
-                for key in ('valid_formats', 'filename', 'name', 'description', 'content', 'markdown', 'raw'):
+                if 'name' in attachment:
+                    if attachment['name']:
+                        the_attachment['name'] = docassemble.base.filter.markdown_to_html(attachment['name'], trim=True, status=self, verbatim=encode)
+                        if debug:
+                            output['question'] += '<p>' + the_attachment['name'] + '</p>'
+                if 'description' in attachment:
+                    if attachment['description']:
+                        the_attachment['description'] = docassemble.base.filter.markdown_to_html(attachment['description'], status=self, verbatim=encode)
+                        if debug:
+                            output['question'] += the_attachment['description']
+                for key in ('valid_formats', 'filename', 'content', 'markdown', 'raw'):
                     if key in attachment:
                         if attachment[key]:
                             the_attachment[key] = attachment[key]
@@ -769,6 +915,15 @@ class InterviewStatus:
                     the_attachment['number'][the_format] = attachment['file'][the_format]
                     the_attachment['filename_with_extension'][the_format] = attachment['filename'] + '.' + extension_of_doc_format[the_format]
                 result['attachments'].append(the_attachment)
+        if self.extras.get('list_collect', False) is not False:
+            result['listCollect'] = {
+                'deleteLabel': word('Delete'),
+                'addAnotherLabel': self.extras['list_collect_add_another_label'] if self.extras['list_collect_add_another_label'] else word("Add another"),
+                'deletedLabel': word("(Deleted)"),
+                'undeleteLabel': word("Undelete"),
+            }
+        validation_rules_used = set()
+        file_fields = list()
         for field in self.question.fields:
             the_field = dict()
             the_field['number'] = field.number
@@ -776,6 +931,105 @@ class InterviewStatus:
                 the_field['variable_name'] = from_safeid(field.saveas)
                 if encode:
                     the_field['variable_name_encoded'] = field.saveas
+                the_field['validation_messages'] = dict()
+                if self.question.question_type == 'multiple_choice' and self.question.question_variety in ["radio", "dropdown", "combobox"]:
+                    if self.question.question_variety == 'combobox':
+                         the_field['validation_messages']['required'] = field.validation_message('combobox required', self, word("You need to select one or type in a new value."))
+                    else:
+                        the_field['validation_messages']['required'] = field.validation_message('multiple choice required', self, word("You need to select one."))
+                elif not (hasattr(field, 'datatype') and field.datatype in ['checkboxes', 'object_checkboxes']):
+                    if hasattr(field, 'inputtype') and field.inputtype == 'combobox':
+                        the_field['validation_messages']['required'] = field.validation_message('combobox required', self, word("You need to select one or type in a new value."))
+                    elif hasattr(field, 'inputtype') and field.inputtype == 'ajax':
+                        the_field['validation_messages']['required'] = field.validation_message('combobox required', self, word("You need to select one."))
+                    elif hasattr(field, 'datatype') and (field.datatype == 'object_radio' or (hasattr(field, 'inputtype') and field.inputtype in ('yesnoradio', 'noyesradio', 'radio', 'dropdown'))):
+                        the_field['validation_messages']['required'] = field.validation_message('multiple choice required', self, word("You need to select one."))
+                    else:
+                        the_field['validation_messages']['required'] = field.validation_message('required', self, word("This field is required."))
+                if hasattr(field, 'inputtype') and field.inputtype in ['yesno', 'noyes', 'yesnowide', 'noyeswide'] and hasattr(field, 'uncheckothers') and field.uncheckothers is not False:
+                    the_field['validation_messages']['uncheckothers'] = field.validation_message('checkboxes required', self, word("Check at least one option, or check “%s”"), parameters=tuple([strip_tags(self.labels[field.number])]))
+                if hasattr(field, 'datatype') and field.datatype not in ('checkboxes', 'object_checkboxes'):
+                    for key in ('minlength', 'maxlength'):
+                        if hasattr(field, 'extras') and key in field.extras and key in self.extras:
+                            if key == 'minlength':
+                                the_field['validation_messages'][key] = field.validation_message(key, self, word("You must type at least %s characters."), parameters=tuple([self.extras[key][field.number]]))
+                            elif key == 'maxlength':
+                                the_field['validation_messages'][key] = field.validation_message(key, self, word("You cannot type more than %s characters."), parameters=tuple([self.extras[key][field.number]]))
+            if hasattr(field, 'datatype'):
+                if field.datatype in ('checkboxes', 'object_checkboxes') and ((hasattr(field, 'nota') and self.extras['nota'][field.number] is not False) or (hasattr(field, 'extras') and (('minlength' in field.extras and 'minlength' in self.extras) or ('maxlength' in field.extras and 'maxlength' in self.extras)))):
+                    if hasattr(field, 'extras') and (('minlength' in field.extras and 'minlength' in self.extras) or ('maxlength' in field.extras and 'maxlength' in self.extras)):
+                        checkbox_messages = dict()
+                        if 'minlength' in field.extras and 'minlength' in self.extras and 'maxlength' in field.extras and 'maxlength' in self.extras and self.extras['minlength'][field.number] == self.extras['maxlength'][field.number] and self.extras['minlength'][field.number] > 0:
+                            if 'nota' not in self.extras:
+                                self.extras['nota'] = dict()
+                            self.extras['nota'][field.number] = False
+                            checkbox_messages['checkexactly'] = field.validation_message('checkbox minmaxlength', self, word("Please select exactly %s."), parameters=tuple([self.extras['maxlength'][field.number]]))
+                        else:
+                            if 'minlength' in field.extras and 'minlength' in self.extras:
+                                checkbox_rules['checkatleast'] = [str(field.number), self.extras['minlength'][field.number]]
+                                if self.extras['minlength'][field.number] == 1:
+                                    checkbox_messages['checkatleast'] = field.validation_message('checkbox minlength', self, word("Please select one."))
+                                else:
+                                    checkbox_messages['checkatleast'] = field.validation_message('checkbox minlength', self, word("Please select at least %s."), parameters=tuple([self.extras['minlength'][field.number]]))
+                                if int(float(self.extras['minlength'][field.number])) > 0:
+                                    if 'nota' not in self.extras:
+                                        self.extras['nota'] = dict()
+                                    self.extras['nota'][field.number] = False
+                            if 'maxlength' in field.extras and 'maxlength' in self.extras:
+                                checkbox_rules['checkatmost'] = [str(field.number), self.extras['maxlength'][field.number]]
+                                checkbox_messages['checkatmost'] = field.validation_message('checkbox maxlength', self, word("Please select no more than %s."), parameters=tuple([self.extras['maxlength'][field.number]]))
+                        the_field['validation_messages'].update(checkbox_messages)
+                    if hasattr(field, 'nota') and self.extras['nota'][field.number] is not False:
+                        the_field['validation_messages']['checkatleast'] = field.validation_message('checkboxes required', self, word("Check at least one option, or check “%s”"), parameters=tuple([self.extras['nota'][field.number]]))
+                if field.datatype == 'date':
+                    the_field['validation_messages']['date'] = field.validation_message('date', self, word("You need to enter a valid date."))
+                    if hasattr(field, 'extras') and 'min' in field.extras and 'min' in self.extras and 'max' in field.extras and 'max' in self.extras and field.number in self.extras['min'] and field.number in self.extras['max']:
+                        the_field['validation_messages']['minmax'] = field.validation_message('date minmax', self, word("You need to enter a date between %s and %s."), parameters=(format_date(self.extras['min'][field.number], format='medium'), format_date(self.extras['max'][field.number], format='medium')))
+                    else:
+                        was_defined = dict()
+                        for key in ['min', 'max']:
+                            if hasattr(field, 'extras') and key in field.extras and key in self.extras and field.number in self.extras[key]:
+                                was_defined[key] = True
+                                if key == 'min':
+                                    the_field['validation_messages']['min'] = field.validation_message('date min', self, word("You need to enter a date on or after %s."), parameters=tuple([format_date(self.extras[key][field.number], format='medium')]))
+                                elif key == 'max':
+                                    the_field['validation_messages']['max'] = field.validation_message('date max', self, word("You need to enter a date on or before %s."), parameters=tuple([format_date(self.extras[key][field.number], format='medium')]))
+                        if len(was_defined) == 0 and 'default date min' in self.question.interview.options and 'default date max' in self.question.interview.options:
+                            the_field['min'] = format_date(self.question.interview.options['default date min'], format='yyyy-MM-dd')
+                            the_field['max'] = format_date(self.question.interview.options['default date max'], format='yyyy-MM-dd')
+                            the_field['validation_messages']['minmax'] = field.validation_message('date minmax', self, word("You need to enter a date between %s and %s."), parameters=(format_date(self.question.interview.options['default date min'], format='medium'), format_date(self.question.interview.options['default date max'], format='medium')))
+                        elif 'max' not in was_defined and 'default date max' in self.question.interview.options:
+                            the_field['max'] = format_date(self.question.interview.options['default date max'], format='yyyy-MM-dd')
+                            the_field['validation_messages']['max'] = field.validation_message('date max', self, word("You need to enter a date on or before %s."), parameters=tuple([format_date(self.question.interview.options['default date max'], format='medium')]))
+                        elif 'min' not in was_defined and 'default date min' in self.question.interview.options:
+                            the_field['min'] = format_date(self.question.interview.options['default date min'], format='yyyy-MM-dd')
+                            the_field['validation_messages']['min'] = field.validation_message('date min', self, word("You need to enter a date on or after %s."), parameters=tuple([format_date(self.question.interview.options['default date min'], format='medium')]))
+                if field.datatype == 'time':
+                    the_field['validation_messages']['time'] = field.validation_message('time', self, word("You need to enter a valid time."))
+                if field.datatype in ['datetime', 'datetime-local']:
+                    the_field['validation_messages']['datetime'] = field.validation_message('datetime', self, word("You need to enter a valid date and time."))
+                if field.datatype == 'email':
+                    the_field['validation_messages']['email'] = field.validation_message('email', self, word("You need to enter a complete e-mail address."))
+                if field.datatype in ['number', 'currency', 'float', 'integer']:
+                    the_field['validation_messages']['number'] = field.validation_message('number', self, word("You need to enter a number."))
+                    if field.datatype == 'integer' and not ('step' in self.extras and field.number in self.extras['step']):
+                        the_field['validation_messages']['step'] = field.validation_message('integer', self, word("Please enter a whole number."))
+                    elif 'step' in self.extras and field.number in self.extras['step']:
+                        the_field['validation_messages']['step'] = field.validation_message('step', self, word("Please enter a multiple of {0}."))
+                    for key in ['min', 'max']:
+                        if hasattr(field, 'extras') and key in field.extras and key in self.extras and field.number in self.extras[key]:
+                            if key == 'min':
+                                the_field['validation_messages'][key] = field.validation_message('min', self, word("You need to enter a number that is at least %s."), parameters=tuple([self.extras[key][field.number]]))
+                            elif key == 'max':
+                                the_field['validation_messages'][key] = field.validation_message('max', self, word("You need to enter a number that is at most %s."), parameters=tuple([self.extras[key][field.number]]))
+                if (field.datatype in ['files', 'file', 'camera', 'user', 'environment', 'camcorder', 'microphone']):
+                    file_fields.append(field)
+                    the_field['validation_messages']['required'] = field.validation_message('file required', self, word("You must provide a file."))
+                    if 'accept' in self.extras and field.number in self.extras['accept']:
+                        the_field['validation_messages']['accept'] = field.validation_message('accept', self, word("Please upload a file with a valid file format."))
+                    if get_config('maximum content length') is not None:
+                        the_field['max'] = get_config('maximum content length')
+                        the_field['validation_messages']['max'] = field.validation_message('maxuploadsize', self, word("Your file upload is larger than the server can accept. Please reduce the size of your file upload."))
             for param in ('datatype', 'fieldtype', 'sign', 'inputtype', 'address_autocomplete'):
                 if hasattr(field, param):
                     the_field[param] = getattr(field, param)
@@ -787,6 +1041,8 @@ class InterviewStatus:
                 the_field['uncheck_others'] = True
             for key in ('minlength', 'maxlength', 'min', 'max', 'step', 'scale', 'inline width', 'rows', 'accept', 'currency symbol', 'field metadata'):
                 if key in self.extras and field.number in self.extras[key]:
+                    if key in ('minlength', 'maxlength', 'min', 'max', 'step'):
+                        validation_rules_used.add(key)
                     the_field[key] = self.extras[key][field.number]
             if hasattr(field, 'saveas') and field.saveas in self.embedded:
                 the_field['embedded'] = True
@@ -801,12 +1057,14 @@ class InterviewStatus:
             if self.question.question_type == 'multiple_choice' or hasattr(field, 'choicetype') or (hasattr(field, 'datatype') and field.datatype in ('object', 'checkboxes', 'object_checkboxes', 'object_radio')):
                 the_field['choices'] = self.get_choices_data(field, the_default, the_user_dict, encode=encode)
             if hasattr(field, 'nota'):
-                the_field['none_of_the_above'] = self.extras['nota'][field.number]
+                the_field['none_of_the_above'] = docassemble.base.filter.markdown_to_html(self.extras['nota'][field.number], do_terms=False, status=self, verbatim=encode)
             the_field['active'] = self.extras['ok'][field.number]
             if field.number in self.extras['required']:
                 the_field['required'] = self.extras['required'][field.number]
+                if the_field['required']:
+                    validation_rules_used.add('required')
             if 'validation messages' in self.extras and field.number in self.extras['validation messages']:
-                the_field['validation_messages'] = self.extras['validation messages'][field.number]
+                the_field['validation_messages'].update(self.extras['validation messages'][field.number])
             if 'permissions' in self.extras:
                 the_field['permissions'] = self.extras['permissions'][field.number]
             if hasattr(field, 'datatype') and field.datatype in ('file', 'files', 'camera', 'user', 'environment') and 'max_image_size' in self.extras and self.extras['max_image_size']:
@@ -826,27 +1084,65 @@ class InterviewStatus:
                     the_field['show_if_val'] = self.extras['show_if_val'][field.number]
                 if 'show_if_js' in field.extras:
                     the_field['show_if_js'] = dict(expression=field.extras['show_if_js']['expression'].text(the_user_dict), vars=field.extras['show_if_js']['vars'], sign=field.extras['show_if_js']['sign'], mode=field.extras['show_if_js']['mode'])
-            if hasattr(field, 'datatype'):
-                if 'note' in self.extras and field.number in self.extras['note']:
-                    the_field['note'] = self.extras['note'][field.number]
-                if 'html' in self.extras and field.number in self.extras['html']:
-                    the_field['html'] = self.extras['html'][field.number]
-                if field.number in self.hints:
-                    the_field['hint'] = self.hints[field.number]
-                if field.number in self.labels:
-                    the_field['label'] = self.labels[field.number]
-                if field.number in self.helptexts:
-                    the_field['helptext'] = self.helptexts[field.number]
-            result['fields'].append(the_field)
+            if 'note' in self.extras and field.number in self.extras['note']:
+                the_field['note'] = docassemble.base.filter.markdown_to_html(self.extras['note'][field.number], status=self, verbatim=encode)
+            if 'html' in self.extras and field.number in self.extras['html']:
+                the_field['html'] = self.extras['html'][field.number]
+            if field.number in self.hints:
+                the_field['hint'] = self.hints[field.number]
+                if debug:
+                    output['question'] += '<p>' + the_field['hint'] + '</p>'
+            if field.number in self.labels:
+                the_field['label'] = docassemble.base.filter.markdown_to_html(self.labels[field.number], trim=True, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += '<p>' + the_field['label'] + '</p>'
+            if field.number in self.helptexts:
+                the_field['helptext'] = docassemble.base.filter.markdown_to_html(self.helptexts[field.number], status=self, verbatim=encode)
+                if debug:
+                    output['question'] += the_field['helptext']
             if self.question.question_type in ("yesno", "yesnomaybe"):
-                the_field['true_label'] = self.question.yes()
-                the_field['false_label'] = self.question.no()
+                the_field['true_label'] = docassemble.base.filter.markdown_to_html(self.question.yes(), trim=True, do_terms=False, status=self, verbatim=encode)
+                the_field['false_label'] = docassemble.base.filter.markdown_to_html(self.question.no(), trim=True, do_terms=False, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += '<p>' + the_field['true_label'] + '</p>'
+                    output['question'] += '<p>' + the_field['false_label'] + '</p>'
             if self.question.question_type == 'yesnomaybe':
-                the_field['maybe_label'] = self.question.maybe()
+                the_field['maybe_label'] = docassemble.base.filter.markdown_to_html(self.question.maybe(), trim=True, do_terms=False, status=self, verbatim=encode)
+                if debug:
+                    output['question'] += '<p>' + the_field['maybe_label'] + '</p>'
+            result['fields'].append(the_field)
         if len(self.attributions):
             result['attributions'] = [x.rstrip() for x in self.attributions]
         if 'track_location' in self.extras and self.extras['track_location']:
             result['track_location'] = True
+        if 'inverse navbar' in self.question.interview.options:
+            if self.question.interview.options['inverse navbar']:
+                result['navbarVariant'] = 'dark'
+            else:
+                result['navbarVariant'] = 'light'
+        elif get_config('inverse navbar', True):
+            result['navbarVariant'] = 'dark'
+        else:
+            result['navbarVariant'] = 'light'
+        if debug:
+            readability = dict()
+            for question_type in ('question', 'help'):
+                if question_type not in output:
+                    continue
+                phrase = docassemble.base.functions.server.to_text(output[question_type])
+                if (not phrase) or len(phrase) < 10:
+                    phrase = "The sky is blue."
+                phrase = re.sub(r'[^A-Za-z 0-9\.\,\?\#\!\%\&\(\)]', r' ', phrase)
+                readability[question_type] = [('Flesch Reading Ease', textstat.flesch_reading_ease(phrase)),
+                                              ('Flesch-Kincaid Grade Level', textstat.flesch_kincaid_grade(phrase)),
+                                              ('Gunning FOG Scale', textstat.gunning_fog(phrase)),
+                                              ('SMOG Index', textstat.smog_index(phrase)),
+                                              ('Automated Readability Index', textstat.automated_readability_index(phrase)),
+                                              ('Coleman-Liau Index', textstat.coleman_liau_index(phrase)),
+                                              ('Linsear Write Formula', textstat.linsear_write_formula(phrase)),
+                                              ('Dale-Chall Readability Score', textstat.dale_chall_readability_score(phrase)),
+                                              ('Readability Consensus', textstat.text_standard(phrase))]
+            result['source'] = {'label': word("Source"), 'title': word("How this question came to be asked"), 'history': self.get_history(), 'readability': readability}
         return result
     def get_choices(self, field, the_user_dict):
         question = self.question
@@ -903,9 +1199,9 @@ class InterviewStatus:
             if self.question.question_type == "multiple_choice":
                 pairlist = list(self.selectcompute[field.number])
                 for pair in pairlist:
-                    item = dict(label=pair['label'], value=pair['key'])
+                    item = dict(label=docassemble.base.filter.markdown_to_html(pair['label'], trim=True, do_terms=False, status=self, verbatim=encode), value=pair['key'])
                     if 'help' in pair:
-                        item['help'] = pair['help'].rstrip()
+                        item['help'] = docassemble.base.filter.markdown_to_html(pair['help'].rstrip(), trim=True, do_terms=False, status=self, verbatim=encode)
                     if 'default' in pair:
                         item['default'] = pair['default']
                     if 'image' in pair:
@@ -924,7 +1220,7 @@ class InterviewStatus:
                     pairlist = list()
                 if field.datatype == 'object_checkboxes':
                     for pair in pairlist:
-                        item = dict(label=pair['label'], value=from_safeid(pair['key']))
+                        item = dict(label=docassemble.base.filter.markdown_to_html(pair['label'], trim=True, do_terms=False, status=self, verbatim=encode), value=from_safeid(pair['key']))
                         if ('default' in pair and pair['default']) or (defaultvalue is not None and isinstance(defaultvalue, (list, set)) and str(pair['key']) in defaultvalue) or (isinstance(defaultvalue, dict) and str(pair['key']) in defaultvalue and defaultvalue[str(pair['key'])]) or (isinstance(defaultvalue, (str, int, bool, float)) and str(pair['key']) == str(defaultvalue)):
                             item['selected'] = True
                         if 'help' in pair:
@@ -932,7 +1228,7 @@ class InterviewStatus:
                         choice_list.append(item)
                 elif field.datatype in ('object', 'object_radio'):
                     for pair in pairlist:
-                        item = dict(label=pair['label'], value=from_safeid(pair['key']))
+                        item = dict(label=docassemble.base.filter.markdown_to_html(pair['label'], trim=True, do_terms=False, status=self, verbatim=encode), value=from_safeid(pair['key']))
                         if ('default' in pair and pair['default']) or (defaultvalue is not None and isinstance(defaultvalue, (str, int, bool, float)) and str(pair['key']) == str(defaultvalue)):
                             item['selected'] = True
                         if 'default' in pair:
@@ -942,7 +1238,7 @@ class InterviewStatus:
                         choice_list.append(item)
                 elif field.datatype == 'checkboxes':
                     for pair in pairlist:
-                        item = dict(label=pair['label'], variable_name=saveas + "[" + repr(pair['key']) + "]", value=True)
+                        item = dict(label=docassemble.base.filter.markdown_to_html(pair['label'], trim=True, do_terms=False, status=self, verbatim=encode), variable_name=saveas + "[" + repr(pair['key']) + "]", value=True)
                         if encode:
                             item['variable_name_encoded'] = safeid(saveas + "[" + repr(pair['key']) + "]")
                         if ('default' in pair and pair['default']) or (defaultvalue is not None and isinstance(defaultvalue, (list, set)) and str(pair['key']) in defaultvalue) or (isinstance(defaultvalue, dict) and str(pair['key']) in defaultvalue and defaultvalue[str(pair['key'])]) or (isinstance(defaultvalue, (str, int, bool, float)) and str(pair['key']) == str(defaultvalue)):
@@ -952,7 +1248,7 @@ class InterviewStatus:
                         choice_list.append(item)
                 else:
                     for pair in pairlist:
-                        item = dict(label=pair['label'], value=pair['key'])
+                        item = dict(label=docassemble.base.filter.markdown_to_html(pair['label'], trim=True, do_terms=False, status=self, verbatim=encode), value=pair['key'])
                         if ('default' in pair and pair['default']) or (defaultvalue is not None and isinstance(defaultvalue, (str, int, bool, float)) and str(pair['key']) == str(defaultvalue)):
                             item['selected'] = True
                         choice_list.append(item)
@@ -961,11 +1257,11 @@ class InterviewStatus:
                         formatted_item = word("None of the above")
                     else:
                         formatted_item = self.extras['nota'][field.number]
-                    choice_list.append(dict(label=formatted_item))
+                    choice_list.append(dict(label=docassemble.base.filter.markdown_to_html(formatted_item, trim=True, do_terms=False, status=self, verbatim=encode)))
         else:
             indexno = 0
             for choice in self.selectcompute[field.number]:
-                item = dict(label=choice['label'], variable_name='_internal["answers"][' + repr(question.extended_question_name(the_user_dict)) + ']', value=indexno)
+                item = dict(label=docassemble.base.filter.markdown_to_html(choice['label'], trim=True, do_terms=False, status=self, verbatim=encode), variable_name='_internal["answers"][' + repr(question.extended_question_name(the_user_dict)) + ']', value=indexno)
                 if encode:
                     item['variable_name_encoded'] = safeid('_internal["answers"][' + repr(question.extended_question_name(the_user_dict)) + ']')
                 if 'image' in choice:
@@ -1459,6 +1755,8 @@ class Question:
         self.can_go_back = True
         self.other_fields_used = set()
         self.fields_used = set()
+        self.fields_for_invalidation = set()
+        self.fields_for_onchange = set()
         self.names_used = set()
         self.mako_names = set()
         self.reconsider = list()
@@ -1605,8 +1903,8 @@ class Question:
             for item in data['translations']:
                 if not isinstance(item, str):
                     raise DAError("A 'translations' block must be a list of text items" + self.idebug(data))
-                if not item.endswith('.xlsx'):
-                    raise DAError("Invalid translations entry '" + item + "'.  A translations entry must refer to a file ending in .xlsx." + self.idebug(data))
+                if not (item.endswith('.xlsx') or item.endswith('.xlf') or item.endswith('.xliff')):
+                    raise DAError("Invalid translations entry '" + item + "'.  A translations entry must refer to a file ending in .xlsx, .xlf, or .xliff." + self.idebug(data))
                 parts = item.split(":")
                 if len(parts) == 1:
                     item = re.sub(r'^data/sources/', '', item)
@@ -1620,21 +1918,84 @@ class Question:
                     raise DAError("Invalid translations entry: " + item + ".  A translations entry must refer to a data sources file" + self.idebug(data))
             for item in tr_todo:
                 self.interview.translations.append(item)
-                the_xlsx_file = docassemble.base.functions.package_data_filename(item)
-                if not os.path.isfile(the_xlsx_file):
-                    raise DAError("The translations file " + the_xlsx_file + " could not be found")
-                df = pandas.read_excel(the_xlsx_file)
-                for column_name in ('interview', 'question_id', 'index_num', 'hash', 'orig_lang', 'tr_lang', 'orig_text', 'tr_text'):
-                    if column_name not in df.columns:
-                        raise DAError("Invalid translations file " + os.path.basename(the_xlsx_file) + ": column " + column_name + " is missing")
-                for indexno in df.index:
-                    if not isinstance(df['tr_text'][indexno], str) or df['tr_text'][indexno] == '':
+                if item.endswith(".xlsx"):
+                    the_xlsx_file = docassemble.base.functions.package_data_filename(item)
+                    if not os.path.isfile(the_xlsx_file):
+                        raise DAError("The translations file " + the_xlsx_file + " could not be found")
+                    df = pandas.read_excel(the_xlsx_file)
+                    for column_name in ('interview', 'question_id', 'index_num', 'hash', 'orig_lang', 'tr_lang', 'orig_text', 'tr_text'):
+                        if column_name not in df.columns:
+                            raise DAError("Invalid translations file " + os.path.basename(the_xlsx_file) + ": column " + column_name + " is missing")
+                    for indexno in df.index:
+                        if not isinstance(df['tr_text'][indexno], str) or df['tr_text'][indexno] == '':
+                            continue
+                        if df['orig_text'][indexno] not in self.interview.translation_dict:
+                            self.interview.translation_dict[df['orig_text'][indexno]] = dict()
+                        if df['orig_lang'][indexno] not in self.interview.translation_dict[df['orig_text'][indexno]]:
+                            self.interview.translation_dict[df['orig_text'][indexno]][df['orig_lang'][indexno]] = dict()
+                        self.interview.translation_dict[df['orig_text'][indexno]][df['orig_lang'][indexno]][df['tr_lang'][indexno]] = df['tr_text'][indexno]
+                elif item.endswith(".xlf") or item.endswith(".xliff"):
+                    the_xlf_file = docassemble.base.functions.package_data_filename(item)
+                    if not os.path.isfile(the_xlf_file):
                         continue
-                    if df['orig_text'][indexno] not in self.interview.translation_dict:
-                        self.interview.translation_dict[df['orig_text'][indexno]] = dict()
-                    if df['orig_lang'][indexno] not in self.interview.translation_dict[df['orig_text'][indexno]]:
-                        self.interview.translation_dict[df['orig_text'][indexno]][df['orig_lang'][indexno]] = dict()
-                    self.interview.translation_dict[df['orig_text'][indexno]][df['orig_lang'][indexno]][df['tr_lang'][indexno]] = df['tr_text'][indexno]
+                    tree = ET.parse(the_xlf_file)
+                    root = tree.getroot()
+                    indexno = 1
+                    if root.attrib['version'] == "1.2":
+                        for the_file in root.iter('{urn:oasis:names:tc:xliff:document:1.2}file'):
+                            source_lang = the_file.attrib.get('source-language', 'en')
+                            target_lang = the_file.attrib.get('target-language', 'en')
+                            for transunit in the_file.iter('{urn:oasis:names:tc:xliff:document:1.2}trans-unit'):
+                                orig_text = ''
+                                tr_text = ''
+                                for source in transunit.iter('{urn:oasis:names:tc:xliff:document:1.2}source'):
+                                    if source.text:
+                                        orig_text += source.text
+                                    for mrk in source:
+                                        orig_text += mrk.text
+                                        if mrk.tail:
+                                            orig_text += mrk.tail
+                                for target in transunit.iter('{urn:oasis:names:tc:xliff:document:1.2}target'):
+                                    if target.text:
+                                        tr_text += target.text
+                                    for mrk in target:
+                                        tr_text += mrk.text
+                                        if mrk.tail:
+                                            tr_text += mrk.tail
+                                if orig_text == '' or tr_text == '':
+                                    continue
+                                if orig_text not in self.interview.translation_dict:
+                                    self.interview.translation_dict[orig_text] = dict()
+                                if source_lang not in self.interview.translation_dict[orig_text]:
+                                    self.interview.translation_dict[orig_text][source_lang] = dict()
+                                self.interview.translation_dict[orig_text][source_lang][target_lang] = tr_text
+                    elif root.attrib['version'] == "2.0":
+                        source_lang = root.attrib.get('srcLang', 'en')
+                        target_lang = root.attrib.get('trgLang', 'en')
+                        for segment in root.iter('{urn:oasis:names:tc:xliff:document:2.0}segment'):
+                            orig_text = ''
+                            tr_text = ''
+                            for source in segment.iter('{urn:oasis:names:tc:xliff:document:2.0}source'):
+                                if source.text:
+                                    orig_text += source.text
+                                for mrk in source:
+                                    orig_text += mrk.text
+                                    if mrk.tail:
+                                        orig_text += mrk.tail
+                            for target in segment.iter('{urn:oasis:names:tc:xliff:document:2.0}target'):
+                                if target.text:
+                                    tr_text += target.text
+                                for mrk in target:
+                                    tr_text += mrk.text
+                                    if mrk.tail:
+                                        tr_text += mrk.tail
+                            if orig_text == '' or tr_text == '':
+                                continue
+                            if orig_text not in self.interview.translation_dict:
+                                self.interview.translation_dict[orig_text] = dict()
+                            if source_lang not in self.interview.translation_dict[orig_text]:
+                                self.interview.translation_dict[orig_text][source_lang] = dict()
+                            self.interview.translation_dict[orig_text][source_lang][target_lang] = tr_text
         if 'default language' in data:
             should_append = False
             self.from_source.set_language(data['default language'])
@@ -2180,10 +2541,10 @@ class Question:
                     term_textobject = TextObject(str(lower_term), question=self)
                     alt_terms = dict()
                     re_dict = dict()
-                    re_dict[self.language] = re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)
+                    re_dict[self.language] = re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)
                     for lang, tr_tuple in term_textobject.other_lang.items():
                         lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                        re_dict[lang] = re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)
+                        re_dict[lang] = re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)
                         alt_terms[lang] = tr_tuple[0]
                     self.terms[lower_term] = {'definition': TextObject(definitions + str(definition), question=self), 're': re_dict, 'alt_terms': alt_terms}
         if 'auto terms' in data and 'question' in data:
@@ -2203,10 +2564,10 @@ class Question:
                     term_textobject = TextObject(str(lower_term), question=self)
                     alt_terms = dict()
                     re_dict = dict()
-                    re_dict[self.language] = re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)
+                    re_dict[self.language] = re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)
                     for lang, tr_tuple in term_textobject.other_lang.items():
                         lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                        re_dict[lang] = re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)
+                        re_dict[lang] = re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)
                         alt_terms[lang] = tr_tuple[0]
                     self.autoterms[lower_term] = {'definition': TextObject(definitions + str(definition), question=self), 're': re_dict, 'alt_terms': alt_terms}
         if 'terms' in data and 'question' not in data:
@@ -2224,14 +2585,14 @@ class Question:
                             lower_term = re.sub(r'\s+', ' ', term.lower())
                             term_textobject = TextObject(str(lower_term), question=self)
                             definition_textobject = TextObject(str(definition), question=self)
-                            self.interview.terms[self.language][lower_term] = {'definition': str(definition), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                            self.interview.terms[self.language][lower_term] = {'definition': str(definition), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
                             for lang, tr_tuple in term_textobject.other_lang.items():
                                 if lang not in self.interview.terms:
                                     self.interview.terms[lang] = dict()
                                 if tr_tuple[0] not in self.interview.terms[lang]:
                                     if lang in definition_textobject.other_lang:
                                         lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                                        self.interview.terms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
+                                        self.interview.terms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
                     else:
                         raise DAError("A terms section organized as a list must be a list of dictionary items." + self.idebug(data))
             elif isinstance(data['terms'], dict):
@@ -2239,14 +2600,14 @@ class Question:
                     lower_term = re.sub(r'\s+', ' ', term.lower())
                     term_textobject = TextObject(str(lower_term), question=self)
                     definition_textobject = TextObject(str(data['terms'][term]), question=self)
-                    self.interview.terms[self.language][lower_term] = {'definition': str(data['terms'][term]), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                    self.interview.terms[self.language][lower_term] = {'definition': str(data['terms'][term]), 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
                     for lang, tr_tuple in term_textobject.other_lang.items():
                         if lang not in self.interview.terms:
                             self.interview.terms[lang] = dict()
                         if tr_tuple[0] not in self.interview.terms[lang]:
                             if lang in definition_textobject.other_lang:
                                 lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                                self.interview.terms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
+                                self.interview.terms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{(?i)(%s)(\|[^\}]*)?}" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
             else:
                 raise DAError("A terms section must be organized as a dictionary or a list." + self.idebug(data))
         if 'auto terms' in data and 'question' not in data:
@@ -2264,14 +2625,14 @@ class Question:
                             lower_term = re.sub(r'\s+', ' ', term.lower())
                             term_textobject = TextObject(str(lower_term), question=self)
                             definition_textobject = TextObject(str(definition), question=self)
-                            self.interview.autoterms[self.language][lower_term] = {'definition': str(definition), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                            self.interview.autoterms[self.language][lower_term] = {'definition': str(definition), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
                             for lang, tr_tuple in term_textobject.other_lang.items():
                                 if lang not in self.interview.autoterms:
                                     self.interview.autoterms[lang] = dict()
                                 if tr_tuple[0] not in self.interview.autoterms[lang]:
                                     if lang in definition_textobject.other_lang:
                                         lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                                        self.interview.autoterms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
+                                        self.interview.autoterms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
                     else:
                         raise DAError("An auto terms section organized as a list must be a list of dictionary items." + self.idebug(data))
             elif isinstance(data['auto terms'], dict):
@@ -2279,14 +2640,14 @@ class Question:
                     lower_term = re.sub(r'\s+', ' ', term.lower())
                     term_textobject = TextObject(str(lower_term), question=self)
                     definition_textobject = TextObject(str(data['auto terms'][term]), question=self)
-                    self.interview.autoterms[self.language][lower_term] = {'definition': str(data['auto terms'][term]), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
+                    self.interview.autoterms[self.language][lower_term] = {'definition': str(data['auto terms'][term]), 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_term),), re.IGNORECASE | re.DOTALL)}
                     for lang, tr_tuple in term_textobject.other_lang.items():
                         if lang not in self.interview.autoterms:
                             self.interview.autoterms[lang] = dict()
                         if tr_tuple[0] not in self.interview.autoterms[lang]:
                             if lang in definition_textobject.other_lang:
                                 lower_other = re.sub(r'\s+', ' ', tr_tuple[0].lower())
-                                self.interview.autoterms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
+                                self.interview.autoterms[lang][tr_tuple[0]] = {'definition': definition_textobject.other_lang[lang][0], 're': re.compile(r"{?(?i)\b(%s)\b}?" % (re.sub(r'\s', '\\\s+', lower_other),), re.IGNORECASE | re.DOTALL)}
             else:
                 raise DAError("An auto terms section must be organized as a dictionary or a list." + self.idebug(data))
         if 'default role' in data:
@@ -2337,6 +2698,11 @@ class Question:
                     if not isinstance(item, dict):
                         raise DAError("An action buttons item must be a dictionary." + self.idebug(data))
                     action = item.get('action', None)
+                    target = item.get('new window', None)
+                    if target is True:
+                        target = '_blank'
+                    elif target is False:
+                        target = None
                     label = item.get('label', None)
                     color = item.get('color', 'primary')
                     icon = item.get('icon', None)
@@ -2345,6 +2711,8 @@ class Question:
                     given_arguments = item.get('arguments', dict())
                     if not isinstance(action, str):
                         raise DAError("An action buttons item must contain an action in plain text." + self.idebug(data))
+                    if not isinstance(target, (str, NoneType)):
+                        raise DAError("The new window specifier in an action buttons item must refer to True or plain text." + self.idebug(data))
                     if not isinstance(given_arguments, dict):
                         raise DAError("The arguments specifier in an action buttons item must refer to a dictionary." + self.idebug(data))
                     if not isinstance(label, str):
@@ -2358,6 +2726,10 @@ class Question:
                     if not isinstance(forget_prior, bool):
                         raise DAError("The forget prior specifier in an action buttons item must refer to true or false." + self.idebug(data))
                     button = dict(action=TextObject(definitions + action, question=self), label=TextObject(definitions + label, question=self), color=TextObject(definitions + color, question=self))
+                    if target is not None:
+                        button['target'] = TextObject(definitions + target, question=self)
+                    else:
+                        button['target'] = None
                     if icon is not None:
                         button['icon'] = TextObject(definitions + icon, question=self)
                     else:
@@ -3845,15 +4217,14 @@ class Question:
         self.data_for_debug = data
     def get_old_values(self, user_dict):
         old_values = dict()
-        for field_name in self.fields_used:
-            if field_name in self.interview.invalidation:
-                try:
-                    old_values[field_name] = eval(field_name, user_dict)
-                except:
-                    pass
+        for field_name in self.fields_for_invalidation:
+            try:
+                old_values[field_name] = eval(field_name, user_dict)
+            except:
+                pass
         return old_values
     def invalidate_dependencies_of_variable(self, the_user_dict, field_name, old_value):
-        if field_name in self.interview.invalidation or field_name in self.interview.onchange:
+        if field_name in self.interview.invalidation_todo or field_name in self.interview.onchange_todo:
             self.interview.invalidate_dependencies(field_name, the_user_dict, { field_name: old_value })
         try:
             del the_user_dict['_internal']['dirty'][field_name]
@@ -3861,7 +4232,7 @@ class Question:
             pass
     def invalidate_dependencies(self, the_user_dict, old_values):
         for field_name in self.fields_used.union(self.other_fields_used):
-            if field_name in self.interview.invalidation or field_name in self.interview.onchange:
+            if field_name in self.interview.invalidation_todo or field_name in self.interview.onchange_todo:
                 self.interview.invalidate_dependencies(field_name, the_user_dict, old_values)
             try:
                 del the_user_dict['_internal']['dirty'][field_name]
@@ -4392,6 +4763,10 @@ class Question:
                             action = '_da_priority_action'
                         action = docassemble.base.functions.url_action(action, **arguments)
                     color = item['color'].text(user_dict).strip()
+                    if item['target'] is not None:
+                        target = item['target'].text(user_dict).strip()
+                    else:
+                        target = None
                     if item['icon'] is not None:
                         icon = item['icon'].text(user_dict).strip()
                     else:
@@ -4400,7 +4775,7 @@ class Question:
                         placement = item['placement'].text(user_dict).strip()
                     else:
                         placement = None
-                    extras['action_buttons'].append(dict(action=action, label=label, color=color, icon=icon, placement=placement, forget_prior=forget_prior))
+                    extras['action_buttons'].append(dict(action=action, label=label, color=color, icon=icon, placement=placement, forget_prior=forget_prior, target=target))
                 else:
                     action_buttons = eval(item, user_dict)
                     if hasattr(action_buttons, 'instanceName') and hasattr(action_buttons, 'elements'):
@@ -4410,6 +4785,8 @@ class Question:
                     for button in action_buttons:
                         if not (isinstance(button, dict) and 'label' in button and 'action' in button and isinstance(button['label'], str) and isinstance(button['action'], str)):
                             raise DAError("action buttons code did not evaluate to a list of dictionaries with label and action items")
+                        if 'new window' in button and not isinstance(button['new window'], (str, bool, NoneType)):
+                            raise DAError("action buttons code included a new window item that was not boolean, text, or None")
                         if 'color' in button and not isinstance(button['color'], (str, NoneType)):
                             raise DAError("action buttons code included a color item that was not text or None")
                         if 'icon' in button and not isinstance(button['icon'], (str, NoneType)):
@@ -4419,6 +4796,11 @@ class Question:
                             color = 'primary'
                         icon = button.get('icon', None)
                         placement = button.get('placement', None)
+                        target = button.get('new window', None)
+                        if target is True:
+                            target = '_blank'
+                        elif target is False:
+                            target = None
                         arguments = button.get('arguments', dict())
                         forget_prior = button.get('forget_prior', False)
                         if arguments is None:
@@ -4432,7 +4814,7 @@ class Question:
                                 action = '_da_priority_action'
                             action = docassemble.base.functions.url_action(action, **arguments)
                         label = button['label']
-                        extras['action_buttons'].append(dict(action=action, label=label, color=color, icon=icon, placement=placement))
+                        extras['action_buttons'].append(dict(action=action, label=label, color=color, icon=icon, placement=placement, target=target))
             for item in extras['action_buttons']:
                 if color not in ('primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark', 'link'):
                     raise DAError("color in action buttons not valid: " + repr(color))
@@ -4846,6 +5228,8 @@ class Question:
                     extras['list_minimum'] = the_list.minimum_number
                 iterator_index = list_of_indices.index(extras['list_iterator'])
                 length_to_use = len(the_list.elements)
+                if hasattr(the_list, 'minimum_number') and the_list.minimum_number is not None and the_list.minimum_number > length_to_use:
+                    length_to_use = the_list.minimum_number
                 if length_to_use == 0:
                     length_to_use = 1
                 if the_list.ask_object_type or not extras['list_collect_allow_append']:
@@ -5275,19 +5659,15 @@ class Question:
                                 defaults[field.number] = eval(from_safeid(field.saveas), user_dict)
                         except:
                             try:
-                                #logmessage("Checking if " + from_safeid(field.saveas) + " is in dirty")
-                                defaults[field.number] = user_dict['_internal']['dirty'][from_safeid(field.saveas)]
+                                defaults[field.number] = user_dict['_internal']['dirty'][substitute_vars(from_safeid(field.saveas), self.is_generic, the_x, iterators)]
                             except:
-                                try:
-                                    defaults[field.number] = user_dict['_internal']['dirty'][substitute_vars(from_safeid(field.saveas), self.is_generic, the_x, iterators)]
-                                except:
-                                    if hasattr(field, 'default'):
-                                        if isinstance(field.default, TextObject):
-                                            defaults[field.number] = field.default.text(user_dict).strip()
-                                        else:
-                                            defaults[field.number] = field.default
-                                    elif hasattr(field, 'extras') and 'default' in field.extras:
-                                        defaults[field.number] = eval(field.extras['default']['compute'], user_dict)
+                                if hasattr(field, 'default'):
+                                    if isinstance(field.default, TextObject):
+                                        defaults[field.number] = field.default.text(user_dict).strip()
+                                    else:
+                                        defaults[field.number] = field.default
+                                elif hasattr(field, 'extras') and 'default' in field.extras:
+                                    defaults[field.number] = eval(field.extras['default']['compute'], user_dict)
                         if hasattr(field, 'hint'):
                             hints[field.number] = field.hint.text(user_dict)
                     if hasattr(field, 'helptext'):
@@ -5588,10 +5968,11 @@ class Question:
                             docassemble.base.functions.this_thread.misc['docx_subdocs'] = []
                             try:
                                 the_template = result['template']
+                                template_loop_count = 0
                                 while True: # Rerender if there's a subdoc using include_docx_template
                                     old_count = docassemble.base.functions.this_thread.misc.get('docx_include_count', 0)
                                     the_template.render(result['field_data'], jinja_env=custom_jinja_env())
-                                    if docassemble.base.functions.this_thread.misc.get('docx_include_count', 0) > old_count and old_count < 10:
+                                    if docassemble.base.functions.this_thread.misc.get('docx_include_count', 0) > old_count and template_loop_count < 10:
                                         # There's another template included
                                         new_template_file = tempfile.NamedTemporaryFile(prefix="datemp", mode="wb", suffix=".docx", delete=False)
                                         the_template.save(new_template_file.name) # Save and refresh the template
@@ -5605,6 +5986,7 @@ class Question:
                                         else:
                                             the_template.da_hyperlink_style = None
                                         docassemble.base.functions.this_thread.misc['docx_template'] = the_template
+                                        template_loop_count += 1
                                     else:
                                         break
                                 # Copy over images, etc from subdoc to master template
@@ -6259,6 +6641,30 @@ def recursive_update(base, target):
             base[key] = val
     return base
 
+def recursive_add_classes(class_list, the_class):
+    for cl in the_class.__bases__:
+        class_list.append(cl.__name__)
+        recursive_add_classes(class_list, cl)
+
+def unqualified_name(variable, the_user_dict):
+    if variable == 'x' or variable.startswith('x[') or variable.startswith('x.') and 'x' in the_user_dict and hasattr(the_user_dict['x'], 'instanceName'):
+        variable = re.sub(r'^x', the_user_dict['x'].instanceName, variable)
+    for index_var in ['i', 'j', 'k', 'l', 'm', 'n']:
+        if '[' + index_var + ']' in variable and index_var in the_user_dict:
+            variable = re.sub(r'\[' + index_var + '\]', '[' + repr(the_user_dict[index_var]) + ']', variable)
+    return variable
+
+def make_backup_vars(the_user_dict):
+    backups = dict()
+    for var in ['x', 'i', 'j', 'k', 'l', 'm', 'n']:
+        if var in the_user_dict:
+            backups[var] = the_user_dict[var]
+    return backups
+
+def restore_backup_vars(the_user_dict, backups):
+    for var, val in backups.items():
+        the_user_dict[var] = val
+
 class Interview:
     def __init__(self, **kwargs):
         self.source = None
@@ -6272,7 +6678,9 @@ class Interview:
         self.ids_in_use = set()
         self.id_orderings = list()
         self.invalidation = dict()
+        self.invalidation_todo = dict()
         self.onchange = dict()
+        self.onchange_todo = dict()
         self.orderings = list()
         self.orderings_by_question = dict()
         self.images = dict()
@@ -6327,6 +6735,45 @@ class Interview:
         self.issue = dict()
         if 'source' in kwargs:
             self.read_from(kwargs['source'])
+            self.cross_reference_dependencies()
+    def cross_reference_dependencies(self):
+        to_listen_for = set(self.invalidation.keys()).union(set(self.onchange.keys()))
+        todo = dict()
+        for question in self.questions_list:
+            for field_name in question.fields_used.union(question.other_fields_used):
+                totry = list()
+                variants = list()
+                level_dict = dict()
+                generic_dict = dict()
+                expression_as_list = [x for x in match_brackets_or_dot.split(field_name) if x != '']
+                expression_as_list.append('')
+                recurse_indices(expression_as_list, list_of_indices, [], variants, level_dict, [], generic_dict, [])
+                for variant in variants:
+                    if variant in to_listen_for:
+                        totry.append({'real': field_name, 'vari': variant, 'iterators': level_dict[variant], 'generic': generic_dict[variant], 'is_generic': 0 if generic_dict[variant] == '' else 1, 'num_dots': variant.count('.'), 'num_iterators': variant.count('[')})
+                totry = sorted(sorted(sorted(sorted(totry, key=lambda x: len(x['iterators'])), key=lambda x: x['num_iterators'], reverse=True), key=lambda x: x['num_dots'], reverse=True), key=lambda x: x['is_generic'])
+                for attempt in totry:
+                    if field_name not in todo:
+                        todo[field_name] = []
+                    found = False
+                    for existing_item in todo[field_name]:
+                        if attempt['vari'] == existing_item['vari']:
+                            found = True
+                    if not found:
+                        todo[field_name].append(attempt)
+                    if attempt['vari'] in self.invalidation:
+                        for var in self.invalidation[attempt['vari']]:
+                            if field_name not in self.invalidation_todo:
+                                self.invalidation_todo[field_name] = []
+                            if not found:
+                                self.invalidation_todo[field_name].append({'target': var, 'context': attempt})
+                            question.fields_for_invalidation.add(field_name)
+                    if attempt['vari'] in self.onchange:
+                        if field_name not in self.onchange_todo:
+                            self.onchange_todo[field_name] = []
+                        if not found:
+                            self.onchange_todo[field_name].append({'target': self.onchange[attempt['vari']], 'context': attempt})
+                        question.fields_for_onchange.add(field_name)
     def ordered(self, the_list):
         if len(the_list) <= 1:
             return the_list
@@ -6338,37 +6785,65 @@ class Interview:
         try:
             if current_value == old_values[field_name]:
                 return
+            do_invalidation = True
         except:
-            pass
-        if field_name in self.invalidation:
-            for variable in self.invalidation[field_name]:
-                if re.search(r'^x[\.\]]', variable) and not re.search(r'^x[\.\]]', field_name):
-                    continue
-                if '[' in variable:
-                    ok = True
-                    for iterator in ['[i]', '[j]', '[k]', '[l]', '[m]', '[n]']:
-                        if iterator in variable and iterator not in field_name:
-                            ok = False
-                            break
-                    if not ok:
+            do_invalidation = False
+        if do_invalidation:
+            if field_name in self.invalidation_todo:
+                for info in self.invalidation_todo[field_name]:
+                    unqualified_variable = info['target']
+                    if info['context']['is_generic'] or len(info['context']['iterators']) > 0:
+                        if info['context']['is_generic']:
+                            unqualified_variable = re.sub('^x', info['context']['generic'], info['target'])
+                        for index_num, index_var in enumerate(['i', 'j', 'k', 'l', 'm', 'n']):
+                            if index_num >= len(info['context']['iterators']):
+                                break
+                            unqualified_variable = re.sub(r'\[' + index_var + '\]', '[' + info['context']['iterators'][index_num] + ']', unqualified_variable)
+                    unqualified_variable = unqualified_name(unqualified_variable, the_user_dict)
+                    try:
+                        exec("_internal['dirty'][" + repr(unqualified_variable) + "] = " + unqualified_variable, the_user_dict)
+                    except:
                         continue
-                try:
-                    exec("_internal['dirty'][" + repr(variable) + "] = " + variable, the_user_dict)
-                except:
-                    continue
-                try:
-                    exec("del " + variable, the_user_dict)
-                    #logmessage("Interview.invalidate_dependencies: deleted " + variable)
-                except:
-                    pass
-        if field_name in self.onchange:
+                    try:
+                        exec("del " + unqualified_variable, the_user_dict)
+                        #logmessage("Interview.invalidate_dependencies: deleted " + unqualified_variable)
+                    except:
+                        pass
+        if field_name in self.onchange_todo:
             if 'alpha' not in the_user_dict:
                 self.load_util(the_user_dict)
-            for the_code in self.onchange[field_name]:
-                try:
-                    exec(the_code, the_user_dict)
-                except Exception as err:
-                    logmessage("Exception raised by on change code: " + err.__class__.__name__ + ": " + str(err))
+            for info in self.onchange_todo[field_name]:
+                if info['context']['is_generic'] or len(info['context']['iterators']) > 0:
+                    backup_vars = make_backup_vars(the_user_dict)
+                    if info['context']['is_generic']:
+                        try:
+                            the_user_dict['x'] = eval(info['context']['generic'], the_user_dict)
+                        except:
+                            restore_backup_vars(the_user_dict, backup_vars)
+                            continue
+                    failed = False
+                    for index_num, index_var in enumerate(['i', 'j', 'k', 'l', 'm', 'n']):
+                        if index_num >= len(info['context']['iterators']):
+                            break
+                        if index_var == info['context']['iterators'][index_num]:
+                            continue
+                        try:
+                            the_user_dict[index_var] = eval(info['context']['iterators'][index_num], the_user_dict)
+                        except:
+                            failed = True
+                            break
+                    if failed:
+                        restore_backup_vars(the_user_dict, backup_vars)
+                        continue
+                else:
+                    backup_vars = None
+                for code_to_run in info['target']:
+                    try:
+                        exec(code_to_run, the_user_dict)
+                    except Exception as err:
+                        logmessage("Exception raised by on change code: " + err.__class__.__name__ + ": " + str(err))
+                if backup_vars:
+                    restore_backup_vars(the_user_dict, backup_vars)
     def get_ml_store(self):
         if hasattr(self, 'ml_store'):
             return self.ml_store
@@ -6432,6 +6907,8 @@ class Interview:
                     title[key] = val
         return title
     def allowed_to_access(self, is_anonymous=False, has_roles=None):
+        if isinstance(has_roles, list) and len(has_roles) == 0:
+            has_roles = ['user']
         roles = set()
         for metadata in self.metadata:
             if 'required privileges' in metadata:
@@ -6459,6 +6936,8 @@ class Interview:
                 return False
         return True
     def allowed_to_initiate(self, is_anonymous=False, has_roles=None):
+        if isinstance(has_roles, list) and len(has_roles) == 0:
+            has_roles = ['user']
         if not self.allowed_to_access(is_anonymous=is_anonymous, has_roles=has_roles):
             return False
         roles = set()
@@ -6490,6 +6969,8 @@ class Interview:
                 return len(set(roles).intersection(set(has_roles))) > 0
         return True
     def allowed_to_see_listed(self, is_anonymous=False, has_roles=None):
+        if isinstance(has_roles, list) and len(has_roles) == 0:
+            has_roles = ['user']
         if not self.allowed_to_access(is_anonymous=is_anonymous, has_roles=has_roles):
             return False
         roles = set()
@@ -7273,8 +7754,7 @@ class Interview:
                     root_evaluated = eval(mv['generic'], user_dict)
                     #logmessage("Root was evaluated")
                     classes_to_look_for = [type(root_evaluated).__name__]
-                    for cl in type(root_evaluated).__bases__:
-                        classes_to_look_for.append(cl.__name__)
+                    recursive_add_classes(classes_to_look_for, type(root_evaluated))
                     for generic_object in classes_to_look_for:
                         #logmessage("Looking for generic object " + generic_object + " for " + missingVariable)
                         if generic_object in self.generic_questions and missingVariable in self.generic_questions[generic_object] and (language in self.generic_questions[generic_object][missingVariable] or '*' in self.generic_questions[generic_object][missingVariable]):
@@ -7997,7 +8477,7 @@ def process_selections(data, manual=False, exclude=None):
     else:
         to_exclude = unpack_list(exclude)
     result = []
-    if (isinstance(data, abc.Iterable) and not isinstance(data, (str, dict))) or (hasattr(data, 'elements') and isinstance(data.elements, (list, set))):
+    if (isinstance(data, abc.Iterable) and not isinstance(data, (str, dict)) and not (hasattr(data, 'elements') and isinstance(data.elements, dict))) or (hasattr(data, 'elements') and isinstance(data.elements, (list, set))):
         for entry in data:
             if isinstance(entry, dict) or (hasattr(entry, 'elements') and isinstance(entry.elements, dict)):
                 the_item = dict()
@@ -8444,7 +8924,17 @@ def custom_jinja_env():
     env.filters['paragraphs'] = docassemble.base.functions.single_to_double_newlines
     env.filters['manual_line_breaks'] = docassemble.base.functions.manual_line_breaks
     env.filters['RichText'] = docassemble.base.file_docx.RichText
+    env.filters['groupby'] = groupby_filter
+    env.filters['max'] = max_filter
+    env.filters['min'] = min_filter
+    env.filters['sum'] = sum_filter
+    env.filters['unique'] = unique_filter
+    env.filters['join'] = join_filter
+    env.filters['attr'] = attr_filter
     env.filters['selectattr'] = selectattr_filter
+    env.filters['rejectattr'] = rejectattr_filter
+    env.filters['sort'] = sort_filter
+    env.filters['dictsort'] = dictsort_filter
     env.filters['nice_number'] = docassemble.base.functions.nice_number
     env.filters['ordinal'] = docassemble.base.functions.ordinal
     env.filters['ordinal_number'] = docassemble.base.functions.ordinal_number
@@ -8467,6 +8957,114 @@ def custom_jinja_env():
     env.filters['map'] = map_filter
     return env
 
+def mygetattr(y, attr):
+    for attribute in attr.split('.'):
+        y = getattr(y, attribute)
+    return y
+
+def str_or_original(y, case_sensitive):
+    if case_sensitive:
+        if hasattr(y, 'instanceName'):
+            if y.__class__.__name__ in ('Value', 'PeriodicValue'):
+                return y.amount()
+            return str(y)
+        return y
+    if hasattr(y, 'instanceName'):
+        if y.__class__.__name__ in ('Value', 'PeriodicValue'):
+            return y.amount()
+        return str(y).lower()
+    try:
+        return y.lower()
+    except:
+        return y
+
+def dictsort_filter(dictionary, case_sensitive=False, by='key', reverse=False):
+    if by == 'value':
+        return sorted(dictionary.items(), key=lambda y: str_or_original(y[1], case_sensitive), reverse=reverse)
+    else:
+        return sorted(dictionary.items(), key=lambda y: str_or_original(y[0], case_sensitive), reverse=reverse)
+
+def sort_filter(array, reverse=False, case_sensitive=False, attribute=None):
+    if attribute is None:
+        if not case_sensitive:
+            def key_func(y):
+                return str_or_original(y, case_sensitive)
+        else:
+            key_func = None
+    else:
+        if isinstance(attribute, list):
+            attributes = [str(y).strip() for y in attribute]
+        else:
+            attributes = [y.strip() for y in str(attribute).split(',')]
+        def key_func(y):
+            return [str_or_original(mygetattr(y, attribute), case_sensitive) for attribute in attributes]
+    return sorted(array, key=key_func, reverse=reverse)
+
+_GroupTuple = namedtuple('_GroupTuple', ['grouper', 'list'])
+_GroupTuple.__repr__ = tuple.__repr__
+_GroupTuple.__str__ = tuple.__str__
+
+def groupby_filter(array, attr_name):
+    def func(y):
+        return mygetattr(y, attr_name)
+    return [_GroupTuple(key, list(values)) for key, values in groupby(sorted(array, key=func), func)]
+
+def max_filter(array, case_sensitive=False, attribute=None):
+    it = iter(array)
+    try:
+        first = next(it)
+    except StopIteration:
+        raise DAError("max: list was empty")
+    if attribute:
+        def key_func(y):
+            return str_or_original(mygetattr(y, attribute), case_sensitive=case_sensitive)
+    else:
+        def key_func(y):
+            return str_or_original(y, case_sensitive=case_sensitive)
+    return max(chain([first], it), key=key_func)
+
+def min_filter(array, case_sensitive=False, attribute=None):
+    it = iter(array)
+    try:
+        first = next(it)
+    except StopIteration:
+        raise DAError("min: list was empty")
+    if attribute:
+        def key_func(y):
+            return str_or_original(mygetattr(y, attribute), case_sensitive=case_sensitive)
+    else:
+        def key_func(y):
+            return str_or_original(y, case_sensitive=case_sensitive)
+    return min(chain([first], it), key=key_func)
+
+def sum_filter(array, attribute=None, start=0):
+    if attribute is not None:
+        array = [mygetattr(y, attribute) for y in array]
+    return sum(array, start)
+
+def unique_filter(array, case_sensitive=False, attribute=None):
+    seen = set()
+    if attribute is None:
+        for item in array:
+            new_item = str_or_original(item, case_sensitive)
+            if new_item not in seen:
+                seen.add(new_item)
+                yield item
+    else:
+        for item in array:
+            new_item = str_or_original(mygetattr(item, attribute), case_sensitive)
+            if new_item not in seen:
+                seen.add(new_item)
+                yield mygetattr(item, attribute)
+
+def join_filter(array, d="", attribute=None):
+    if attribute is not None:
+        return d.join([str(mygetattr(y, attribute)) for y in array])
+    return d.join([str(y) for y in array])
+
+def attr_filter(var, attr_name):
+    return mygetattr(var, attr_name)
+
 def selectattr_filter(*pargs, **kwargs):
     if len(pargs) > 2:
         array = pargs[0]
@@ -8475,11 +9073,26 @@ def selectattr_filter(*pargs, **kwargs):
         env = custom_jinja_env()
         func = lambda item: env.call_test(func_name, item, pargs[3:], kwargs)
         for item in array:
-            if func(getattr(item, attr_name)):
+            if func(mygetattr(item, attr_name)):
                 yield item
     else:
         for item in pargs[0]:
-            if getattr(item, pargs[1]):
+            if mygetattr(item, pargs[1]):
+                yield item
+
+def rejectattr_filter(*pargs, **kwargs):
+    if len(pargs) > 2:
+        array = pargs[0]
+        attr_name = pargs[1]
+        func_name = pargs[2]
+        env = custom_jinja_env()
+        func = lambda item: env.call_test(func_name, item, pargs[3:], kwargs)
+        for item in array:
+            if not func(mygetattr(item, attr_name)):
+                yield item
+    else:
+        for item in pargs[0]:
+            if not mygetattr(item, pargs[1]):
                 yield item
 
 def map_filter(*pargs, **kwargs):
@@ -8495,10 +9108,10 @@ def map_filter(*pargs, **kwargs):
         if 'attribute' in kwargs:
             if 'default' in kwargs:
                 for item in pargs[0]:
-                    yield getattr(item, kwargs['attribute'], kwargs['default'])
+                    yield mygetattr(item, kwargs['attribute'], kwargs['default'])
             else:
                 for item in pargs[0]:
-                    yield getattr(item, kwargs['attribute'])
+                    yield mygetattr(item, kwargs['attribute'])
         elif 'index' in kwargs:
             if 'default' in kwargs:
                 for item in pargs[0]:
