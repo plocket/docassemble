@@ -2,7 +2,7 @@
 # Import any DAObject classes or functions that you will need
 from docassemble.base.util import Individual, Person, DAObject, DAFileList, DAFile, Thing, as_datetime
 # Import the SQLObject and some associated utility functions
-from docassemble.base.sql import alchemy_url, upgrade_db, SQLObject, SQLObjectRelationship, StandardRelationshipList
+from docassemble.base.sql import alchemy_url, upgrade_db, SQLObject, SQLObjectRelationship, StandardRelationshipList, connect_args
 # Import SQLAlchemy names
 from sqlalchemy import Column, ForeignKey, Integer, String, DateTime, create_engine, or_, and_
 from sqlalchemy.ext.declarative import declarative_base
@@ -83,7 +83,10 @@ class LawsuitDocumentModel(Base):
 url = alchemy_url('demo db')
 
 # Build the "engine" for connecting to the SQL server, using the URL for the database.
-engine = create_engine(url)
+if url.startswith('postgres'):
+    engine = create_engine(url, connect_args=connect_args('demo db'), pool_pre_ping=False)
+else:
+    engine = create_engine(url, pool_pre_ping=False)
 
 # Create the tables
 Base.metadata.create_all(engine)

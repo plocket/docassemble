@@ -491,7 +491,7 @@ def make_package_zip(pkgname, info, author_info, tz_name, current_project='defau
     trimlength = len(directory) + 1
     packagedir = os.path.join(directory, 'docassemble-' + str(pkgname))
     temp_zip = tempfile.NamedTemporaryFile(suffix=".zip")
-    zf = zipfile.ZipFile(temp_zip.name, mode='w')
+    zf = zipfile.ZipFile(temp_zip, mode='w')
     the_timezone = pytz.timezone(tz_name)
     for root, dirs, files in os.walk(packagedir):
         for file in files:
@@ -510,7 +510,10 @@ def get_version_suffix(package_name):
     from docassemble.webapp.update import get_pip_info
     info = get_pip_info(package_name)
     if 'Version' in info:
-        installed_version = LooseVersion(info['Version'].strip())
+        the_version = info['Version']
+        if the_version is None:
+            the_version = '1.0'
+        installed_version = LooseVersion(the_version.strip())
         latest_release = None
         printable_latest_release = None
         try:

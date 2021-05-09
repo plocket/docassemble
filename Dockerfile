@@ -32,6 +32,7 @@ bash -c \
 && cp /tmp/docassemble/Docker/config/exim4-main /etc/exim4/conf.d/main/01_docassemble \
 && cp /tmp/docassemble/Docker/config/exim4-acl /etc/exim4/conf.d/acl/29_docassemble \
 && cp /tmp/docassemble/Docker/config/exim4-update /etc/exim4/update-exim4.conf.conf \
+&& cp /tmp/docassemble/Docker/nascent.html /var/www/nascent/index.html \
 && update-exim4.conf \
 && chown www-data.www-data /usr/share/docassemble/config \
 && chown www-data.www-data \
@@ -45,10 +46,6 @@ bash -c \
 && chmod ogu+r /usr/share/docassemble/config/config.yml.dist \
 && chmod 755 /etc/ssl/docassemble \
 && cd /tmp \
-&& wget https://bootstrap.pypa.io/get-pip.py \
-&& python get-pip.py \
-&& rm -f get-pip.py \
-&& pip install --upgrade virtualenv \
 && echo \"en_US.UTF-8 UTF-8\" >> /etc/locale.gen \
 && locale-gen \
 && update-locale"
@@ -59,7 +56,7 @@ bash -c \
 "cd /tmp \
 && python3.8 -m venv --copies /usr/share/docassemble/local3.8 \
 && source /usr/share/docassemble/local3.8/bin/activate \
-&& pip3 install --upgrade pip==20.3.1 \
+&& pip3 install --upgrade pip==21.0.1 \
 && pip3 install --upgrade mod_wsgi==4.7.1 \
 && pip3 install --upgrade \
    3to2==1.1.1 \
@@ -78,6 +75,10 @@ bash -c \
    pycryptodomex==3.9.9 \
    six==1.15.0 \
    setuptools==50.3.2 \
+&& pip3 install --upgrade \
+   certbot==1.14.0 \
+   certbot-nginx==1.14.0 \
+   certbot-apache==1.14.0 \
 && pip3 install --upgrade \
    /tmp/docassemble/docassemble \
    /tmp/docassemble/docassemble_base \

@@ -6,6 +6,7 @@ import httplib2
 import socket
 import pkg_resources
 from docassemble.base.generate_key import random_string
+from distutils.version import LooseVersion
 # def trenv(key):
 #     if os.environ[key] == 'null':
 #         return None
@@ -116,11 +117,11 @@ def load(**kwargs):
     if not os.path.isfile(filename):
         sys.stderr.write("Configuration file " + str(filename) + " does not exist.\n")
         sys.exit(1)
-    with open(filename, 'rU', encoding='utf-8') as stream:
+    with open(filename, 'r', encoding='utf-8') as stream:
         raw_daconfig = yaml.load(stream, Loader=yaml.FullLoader)
     if raw_daconfig is None:
         sys.stderr.write("Could not open configuration file from " + str(filename) + "\n")
-        with open(filename, 'rU', encoding='utf-8') as fp:
+        with open(filename, 'r', encoding='utf-8') as fp:
             sys.stderr.write(fp.read() + "\n")
         sys.exit(1)
     daconfig.clear()
@@ -130,16 +131,24 @@ def load(**kwargs):
             daconfig[re.sub(r'_', r' ', key)] = val
         else:
             daconfig[key] = val
+    if 'avconv' in daconfig:
+        config_error("The Configuration directive avconv has been renamed ffmpeg.")
+        daconfig['ffmpeg'] = daconfig['avconv']
+        del daconfig['avconv']
     daconfig['config file'] = filename
     if 'modules' not in daconfig:
         daconfig['modules'] = os.getenv('DA_PYTHON', '/usr/share/docassemble/local' + str(sys.version_info.major) + '.' + str(sys.version_info.minor))
     daconfig['python version'] = str(pkg_resources.get_distribution("docassemble.base").version)
     version_file = daconfig.get('version file', '/usr/share/docassemble/webapp/VERSION')
     if os.path.isfile(version_file) and os.access(version_file, os.R_OK):
-        with open(version_file, 'rU', encoding='utf-8') as fp:
+        with open(version_file, 'r', encoding='utf-8') as fp:
             daconfig['system version'] = fp.read().strip()
     else:
         daconfig['system version'] = '0.1.12'
+    if LooseVersion(daconfig['system version']) >= LooseVersion('1.2.50'):
+        daconfig['has_celery_single_queue'] = True
+    else:
+        daconfig['has_celery_single_queue'] = False
     # for key in [['REDIS', 'redis'], ['RABBITMQ', 'rabbitmq'], ['EC2', 'ec2'], ['LOGSERVER', 'log server'], ['LOGDIRECTORY', 'log'], ['USEHTTPS', 'use https'], ['USELETSENCRYPT', 'use lets encrypt'], ['BEHINDHTTPSLOADBALANCER', 'behind https load balancer'], ['LETSENCRYPTEMAIL', 'lets encrypt email'], ['DAHOSTNAME', 'external hostname']]:
     #     if key[0] in os.environ:
     #         val = trenv(os.environ[key[0]])
@@ -156,6 +165,45 @@ def load(**kwargs):
                 override_config(daconfig, null_messages, key, env_var, pre_key='azure')
         if env_exists('KUBERNETES'):
             override_config(daconfig, null_messages, 'kubernetes', 'KUBERNETES')
+    s3_config = daconfig.get('s3', None)
+    if not s3_config or ('enable' in s3_config and not s3_config['enable']):
+        S3_ENABLED = False
+    else:
+        S3_ENABLED = True
+    gc_config = daconfig.get('google cloud', None)
+    if not gc_config or ('enable' in gc_config and not gc_config['enable']) or not ('access key id' in gc_config and gc_config['access key id']) or not ('secret access key' in gc_config and gc_config['secret access key']):
+        GC_ENABLED = False
+    else:
+        GC_ENABLED = True
+    if 'azure' in daconfig and not isinstance(daconfig['azure'], dict):
+        config_error('azure must be a dict')
+    azure_config = daconfig.get('azure', None)
+    if not isinstance(azure_config, dict) or ('enable' in azure_config and not azure_config['enable']) or 'account name' not in azure_config or azure_config['account name'] is None or 'account key' not in azure_config or azure_config['account key'] is None:
+        AZURE_ENABLED = False
+    else:
+        AZURE_ENABLED = True
+    if daconfig.get('ec2', False) or (env_true_false('ENVIRONMENT_TAKES_PRECEDENCE') and env_true_false('EC2')):
+        h = httplib2.Http()
+        resp, content = h.request(daconfig.get('ec2 ip url', "http://169.254.169.254/latest/meta-data/local-hostname"), "GET")
+        if resp['status'] and int(resp['status']) == 200:
+            hostname = content.decode()
+        else:
+            config_error("Could not get hostname from ec2")
+            sys.exit(1)
+    elif daconfig.get('kubernetes', False) or (env_true_false('ENVIRONMENT_TAKES_PRECEDENCE') and env_true_false('KUBERNETES')):
+        hostname = socket.gethostbyname(socket.gethostname())
+    else:
+        hostname = os.getenv('SERVERHOSTNAME', socket.gethostname())
+    if S3_ENABLED:
+        import docassemble.webapp.amazon
+        cloud = docassemble.webapp.amazon.s3object(s3_config)
+    elif AZURE_ENABLED:
+        import docassemble.webapp.microsoft
+        cloud = docassemble.webapp.microsoft.azureobject(azure_config)
+        if ('key vault name' in azure_config and azure_config['key vault name'] is not None and 'managed identity' in azure_config and azure_config['managed identity'] is not None):
+            daconfig = cloud.load_with_secrets(daconfig)
+    else:
+        cloud = None
     if 'suppress error notificiations' in daconfig and isinstance(daconfig['suppress error notificiations'], list):
         ok = True
         for item in daconfig['suppress error notificiations']:
@@ -164,7 +212,7 @@ def load(**kwargs):
                 break
         if not ok:
             daconfig['suppress error notificiations'] = []
-            sys.stderr.write("Configuration file suppress error notifications directive not valid")
+            config_error("Configuration file suppress error notifications directive not valid")
     else:
         daconfig['suppress error notificiations'] = []
     if 'maximum content length' in daconfig:
@@ -293,16 +341,6 @@ def load(**kwargs):
     #         if key[1] not in daconfig['s3'] or daconfig['s3'][key[1]] != val:
     #             daconfig['s3'][key[1]] = val
     #             changed = True
-    s3_config = daconfig.get('s3', None)
-    if not s3_config or ('enable' in s3_config and not s3_config['enable']):
-        S3_ENABLED = False
-    else:
-        S3_ENABLED = True
-    gc_config = daconfig.get('google cloud', None)
-    if not gc_config or ('enable' in gc_config and not gc_config['enable']) or not ('access key id' in gc_config and gc_config['access key id']) or not ('secret access key' in gc_config and gc_config['secret access key']):
-        GC_ENABLED = False
-    else:
-        GC_ENABLED = True
     # for key in [['AZURECONTAINER', 'container'], ['AZUREACCOUNTKEY', 'account key'], ['AZUREACCOUNTNAME', 'account name'], ['AZUREENABLE', 'enable']]:
     #     if key[0] in os.environ:
     #         if 'azure' not in daconfig:
@@ -311,38 +349,11 @@ def load(**kwargs):
     #         if key[1] not in daconfig['azure'] or daconfig['azure'][key[1]] != val:
     #             daconfig['azure'][key[1]] = val
     #             changed = True
-    if 'azure' in daconfig and not isinstance(daconfig['azure'], dict):
-        config_error('azure must be a dict')
-    azure_config = daconfig.get('azure', None)
-    if not isinstance(azure_config, dict) or ('enable' in azure_config and not azure_config['enable']) or 'account name' not in azure_config or azure_config['account name'] is None or 'account key' not in azure_config or azure_config['account key'] is None:
-        AZURE_ENABLED = False
-    else:
-        AZURE_ENABLED = True
     if 'db' not in daconfig:
         daconfig['db'] = dict(name="docassemble", user="docassemble", password="abc123")
     dbtableprefix = daconfig['db'].get('table prefix', None)
     if not dbtableprefix:
         dbtableprefix = ''
-    if daconfig.get('ec2', False) or (env_true_false('ENVIRONMENT_TAKES_PRECEDENCE') and env_true_false('EC2')):
-        h = httplib2.Http()
-        resp, content = h.request(daconfig.get('ec2 ip url', "http://169.254.169.254/latest/meta-data/local-hostname"), "GET")
-        if resp['status'] and int(resp['status']) == 200:
-            hostname = content.decode()
-        else:
-            config_error("Could not get hostname from ec2")
-            sys.exit(1)
-    elif daconfig.get('kubernetes', False) or (env_true_false('ENVIRONMENT_TAKES_PRECEDENCE') and env_true_false('KUBERNETES')):
-        hostname = socket.gethostbyname(socket.gethostname())
-    else:
-        hostname = os.getenv('SERVERHOSTNAME', socket.gethostname())
-    if S3_ENABLED:
-        import docassemble.webapp.amazon
-        cloud = docassemble.webapp.amazon.s3object(s3_config)
-    elif AZURE_ENABLED:
-        import docassemble.webapp.microsoft
-        cloud = docassemble.webapp.microsoft.azureobject(azure_config)
-    else:
-        cloud = None
     if cloud is not None:
         if 'host' not in daconfig['db'] or daconfig['db']['host'] is None:
             key = cloud.get_key('hostname-sql')
@@ -581,6 +592,8 @@ def load(**kwargs):
             override_config(daconfig, messages, 'redis', 'REDIS')
         if env_exists('RABBITMQ'):
             override_config(daconfig, messages, 'rabbitmq', 'RABBITMQ')
+        if env_exists('DACELERYWORKERS'):
+            override_config(daconfig, messages, 'celery processes', 'DACELERYWORKERS')
         for env_var, key in (('S3ENABLE', 'enable'), ('S3ACCESSKEY', 'access key id'), ('S3SECRETACCESSKEY', 'secret access key'), ('S3BUCKET', 'bucket'), ('S3REGION', 'region'), ('S3ENDPOINTURL', 'endpoint url')):
             if env_exists(env_var):
                 override_config(daconfig, messages, key, env_var, pre_key='s3')
@@ -627,6 +640,8 @@ def load(**kwargs):
             override_config(daconfig, messages, 'web server', 'DAWEBSERVER')
         if env_exists('DASQLPING'):
             override_config(daconfig, messages, 'sql ping', 'DASQLPING')
+        if env_exists('PORT'):
+            override_config(daconfig, messages, 'http port', 'PORT')
         env_messages = messages
     return
 

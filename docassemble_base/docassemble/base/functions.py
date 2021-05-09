@@ -14,7 +14,7 @@ import os
 import shutil
 import inspect
 import mimetypes
-import pkg_resources
+import da_pkg_resources as pkg_resources
 import titlecase
 from docassemble.base.logger import logmessage
 from docassemble.base.error import ForcedNameError, QuestionError, ResponseError, CommandError, BackgroundResponseError, BackgroundResponseActionError, ForcedReRun, DAError
@@ -50,7 +50,7 @@ TypeType = type(type(None))
 locale.setlocale(locale.LC_ALL, '')
 contains_volatile = re.compile('^(x\.|x\[|.*\[[ijklmn]\])')
 
-__all__ = ['alpha', 'roman', 'item_label', 'ordinal', 'ordinal_number', 'comma_list', 'word', 'get_language', 'set_language', 'get_dialect', 'set_country', 'get_country', 'get_locale', 'set_locale', 'comma_and_list', 'need', 'nice_number', 'quantity_noun', 'currency_symbol', 'verb_past', 'verb_present', 'noun_plural', 'noun_singular', 'indefinite_article', 'capitalize', 'space_to_underscore', 'force_ask', 'period_list', 'name_suffix', 'currency', 'static_image', 'title_case', 'url_of', 'process_action', 'url_action', 'get_info', 'set_info', 'get_config', 'prevent_going_back', 'qr_code', 'action_menu_item', 'from_b64_json', 'defined', 'value', 'message', 'response', 'json_response', 'command', 'background_response', 'background_response_action', 'single_paragraph', 'quote_paragraphs', 'location_returned', 'location_known', 'user_lat_lon', 'interview_url', 'interview_url_action', 'interview_url_as_qr', 'interview_url_action_as_qr', 'interview_email', 'get_emails', 'action_arguments', 'action_argument', 'get_default_timezone', 'user_logged_in', 'user_privileges', 'user_has_privilege', 'user_info', 'set_task_counter', 'background_action', 'background_response', 'background_response_action', 'us', 'set_live_help_status', 'chat_partners_available', 'phone_number_in_e164', 'phone_number_formatted', 'phone_number_is_valid', 'countries_list', 'country_name', 'write_record', 'read_records', 'delete_record', 'variables_as_json', 'all_variables', 'language_from_browser', 'device', 'plain', 'bold', 'italic', 'subdivision_type', 'indent', 'raw', 'fix_punctuation', 'set_progress', 'get_progress', 'referring_url', 'undefine', 'invalidate', 'dispatch', 'yesno', 'noyes', 'phone_number_part', 'log', 'encode_name', 'decode_name', 'interview_list', 'interview_menu', 'server_capabilities', 'session_tags', 'get_chat_log', 'get_user_list', 'get_user_info', 'set_user_info', 'get_user_secret', 'create_user', 'create_session', 'get_session_variables', 'set_session_variables', 'go_back_in_session', 'manage_privileges', 'redact', 'forget_result_of', 're_run_logic', 'reconsider', 'get_question_data', 'set_save_status', 'single_to_double_newlines', 'verbatim', 'add_separators', 'store_variables_snapshot', 'update_terms']
+__all__ = ['alpha', 'roman', 'item_label', 'ordinal', 'ordinal_number', 'comma_list', 'word', 'get_language', 'set_language', 'get_dialect', 'set_country', 'get_country', 'get_locale', 'set_locale', 'comma_and_list', 'need', 'nice_number', 'quantity_noun', 'currency_symbol', 'verb_past', 'verb_present', 'noun_plural', 'noun_singular', 'indefinite_article', 'capitalize', 'space_to_underscore', 'force_ask', 'period_list', 'name_suffix', 'currency', 'static_image', 'title_case', 'url_of', 'process_action', 'url_action', 'get_info', 'set_info', 'get_config', 'prevent_going_back', 'qr_code', 'action_menu_item', 'from_b64_json', 'defined', 'value', 'message', 'response', 'json_response', 'command', 'background_response', 'background_response_action', 'single_paragraph', 'quote_paragraphs', 'location_returned', 'location_known', 'user_lat_lon', 'interview_url', 'interview_url_action', 'interview_url_as_qr', 'interview_url_action_as_qr', 'interview_email', 'get_emails', 'action_arguments', 'action_argument', 'get_default_timezone', 'user_logged_in', 'user_privileges', 'user_has_privilege', 'user_info', 'background_action', 'background_response', 'background_response_action', 'us', 'set_live_help_status', 'chat_partners_available', 'phone_number_in_e164', 'phone_number_formatted', 'phone_number_is_valid', 'countries_list', 'country_name', 'write_record', 'read_records', 'delete_record', 'variables_as_json', 'all_variables', 'language_from_browser', 'device', 'plain', 'bold', 'italic', 'subdivision_type', 'indent', 'raw', 'fix_punctuation', 'set_progress', 'get_progress', 'referring_url', 'undefine', 'invalidate', 'dispatch', 'yesno', 'noyes', 'phone_number_part', 'log', 'encode_name', 'decode_name', 'interview_list', 'interview_menu', 'server_capabilities', 'session_tags', 'get_chat_log', 'get_user_list', 'get_user_info', 'set_user_info', 'get_user_secret', 'create_user', 'create_session', 'get_session_variables', 'set_session_variables', 'go_back_in_session', 'manage_privileges', 'redact', 'forget_result_of', 're_run_logic', 'reconsider', 'get_question_data', 'set_save_status', 'single_to_double_newlines', 'verbatim', 'add_separators', 'store_variables_snapshot', 'update_terms']
 
 # debug = False
 # default_dialect = 'us'
@@ -332,7 +332,7 @@ def state_name(state_code, country_code=None):
     name."""
     ensure_definition(state_code, country_code)
     if country_code is None:
-        country_code = 'US'
+        country_code = get_country() or 'US'
     for subdivision in pycountry.subdivisions.get(country_code=country_code):
         m = re.search(r'-([A-Z]+)$', subdivision.code)
         if m and m.group(1) == state_code:
@@ -619,7 +619,7 @@ def states_list(country_code=None):
     suitable for use in a multiple choice field."""
     ensure_definition(country_code)
     if country_code is None:
-        country_code = 'US'
+        country_code = get_country() or 'US'
     mapping = dict()
     for subdivision in pycountry.subdivisions.get(country_code=country_code):
         if subdivision.parent_code is not None:
@@ -647,8 +647,14 @@ def user_has_privilege(*pargs):
     has any of the privileges, False otherwise."""
     privileges = list()
     for parg in pargs:
-        if type(parg) is list:
+        if isinstance(parg, list):
             arg_list = parg
+        elif isinstance(parg, str):
+            arg_list = [parg]
+        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(parg, Iterable):
+            arg_list = list()
+            for sub_parg in parg:
+                arg_list.append(str(sub_parg))
         else:
             arg_list = [parg]
         for arg in arg_list:
@@ -768,10 +774,16 @@ def chat_partners_available(*pargs, **kwargs):
     if type(partner_roles) is not list:
         partner_roles = [partner_roles]
     for parg in pargs:
-        if type(parg) is not list:
-            the_parg = [parg]
-        else:
+        if isinstance(parg, list):
             the_parg = parg
+        elif isinstance(parg, str):
+            the_parg = [parg]
+        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(parg, Iterable):
+            the_parg = list()
+            for sub_parg in parg:
+                the_parg.append(str(sub_parg))
+        else:
+            the_parg = [parg]
         for the_arg in the_parg:
             if the_arg not in partner_roles:
                 partner_roles.append(the_arg)
@@ -902,7 +914,7 @@ def set_parts(**kwargs):
         this_thread.internal['subtitle'] = kwargs['subtitle']
     for key, val in kwargs.items():
         key = re.sub(r'_', r' ', key)
-        if key in ('title', 'logo', 'exit link', 'exit label', 'pre', 'post', 'submit', 'continue button label', 'help label', 'under', 'right', 'tab title', 'short title', 'back button label', 'resume button label', 'date format', 'time format', 'datetime format'):
+        if key in ('title', 'logo', 'exit link', 'exit label', 'pre', 'post', 'submit', 'continue button label', 'help label', 'under', 'right', 'tab title', 'short title', 'back button label', 'resume button label', 'date format', 'time format', 'datetime format', 'footer'):
             this_thread.internal[key] = val
 
 def set_title(**kwargs):
@@ -1391,6 +1403,7 @@ server.absolute_filename = null_func
 server.add_privilege = null_func
 server.add_user_privilege = null_func
 server.alchemy_url = null_func
+server.connect_args = null_func
 server.applock = null_func
 server.bg_action = null_func
 server.button_class_prefix = 'btn-'
@@ -2172,7 +2185,7 @@ def comma_list_en(*pargs, **kwargs):
     for parg in pargs:
         if isinstance(parg, str):
             the_list.append(parg)
-        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(the_list, Iterable):
+        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(parg, Iterable):
             for sub_parg in parg:
                 the_list.append(str(sub_parg))
         else:
@@ -2249,7 +2262,7 @@ def add_separators_en(*pargs, **kwargs):
     for parg in pargs:
         if isinstance(parg, str):
             the_list.append(parg.rstrip())
-        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(the_list, Iterable):
+        elif (hasattr(parg, 'instanceName') and hasattr(parg, 'elements')) or isinstance(parg, Iterable):
             for sub_parg in parg:
                 the_list.append(str(sub_parg).rstrip())
         else:
@@ -2513,10 +2526,14 @@ def middle_constructor(middle, **kwargs):
 
 def possessify_en(a, b, **kwargs):
     ensure_definition(a, b, **kwargs)
-    if 'plural' in kwargs and kwargs['plural']:
-        middle = "' "
+    if this_thread.evaluation_context == 'docx':
+        apostrophe = "’"
     else:
-        middle = "'s "
+        apostrophe = "'"
+    if 'plural' in kwargs and kwargs['plural']:
+        middle = apostrophe + " "
+    else:
+        middle = apostrophe + "s "
     if 'capitalize' in kwargs and kwargs['capitalize']:
         return capitalize(str(a)) + str(middle) + str(b)
     else:
@@ -2560,10 +2577,19 @@ def verb_past_en(*pargs, **kwargs):
     else:
         return(output)
 
+def number_or_length(target):
+    if isinstance(target, (int, float)):
+        return target
+    if isinstance(target, (list, dict, set, tuple)) or (hasattr(target, 'elements') and isinstance(target.elements, (list, dict, set))):
+        return len(target)
+    if target:
+        return 2
+    return 1
+
 def noun_plural_en(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_en(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.en.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2573,7 +2599,7 @@ def noun_plural_en(*pargs, **kwargs):
 
 def noun_singular_en(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.en.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2622,7 +2648,7 @@ def verb_past_es(*pargs, **kwargs):
 def noun_plural_es(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_es(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.es.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2632,7 +2658,7 @@ def noun_plural_es(*pargs, **kwargs):
 
 def noun_singular_es(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.es.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2681,7 +2707,7 @@ def verb_past_de(*pargs, **kwargs):
 def noun_plural_de(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_de(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.de.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2691,7 +2717,7 @@ def noun_plural_de(*pargs, **kwargs):
 
 def noun_singular_de(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.de.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2740,7 +2766,7 @@ def verb_past_fr(*pargs, **kwargs):
 def noun_plural_fr(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_fr(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.fr.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2750,7 +2776,7 @@ def noun_plural_fr(*pargs, **kwargs):
 
 def noun_singular_fr(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.fr.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2799,7 +2825,7 @@ def verb_past_it(*pargs, **kwargs):
 def noun_plural_it(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_it(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.it.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2809,7 +2835,7 @@ def noun_plural_it(*pargs, **kwargs):
 
 def noun_singular_it(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.it.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2858,7 +2884,7 @@ def verb_past_nl(*pargs, **kwargs):
 def noun_plural_nl(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
     noun = noun_singular_nl(pargs[0])
-    if len(pargs) >= 2 and pargs[1] == 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) == 1:
         return str(noun)
     output = docassemble_pattern.nl.pluralize(str(noun))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2868,7 +2894,7 @@ def noun_plural_nl(*pargs, **kwargs):
 
 def noun_singular_nl(*pargs, **kwargs):
     ensure_definition(*pargs, **kwargs)
-    if len(pargs) >= 2 and pargs[1] != 1:
+    if len(pargs) >= 2 and number_or_length(pargs[1]) != 1:
         return pargs[0]
     output = docassemble_pattern.nl.singularize(str(pargs[0]))
     if 'capitalize' in kwargs and kwargs['capitalize']:
@@ -2883,6 +2909,9 @@ def indefinite_article_nl(*pargs, **kwargs):
         return(capitalize(output))
     else:
         return(output)
+
+def titlecasestr(text):
+    return titlecase.titlecase(str(text))
 
 language_functions = {
     'in_the': {
@@ -3033,7 +3062,7 @@ language_functions = {
         '*': capitalize_default
     },
     'title_case': {
-        '*': titlecase.titlecase
+        '*': titlecasestr
     },
     'salutation': {
         '*': salutation_default
@@ -3206,6 +3235,16 @@ def command(*pargs, **kwargs):
     """Executes a command, such as exit, logout, restart, or leave."""
     raise CommandError(*pargs, **kwargs)
 
+def unpack_pargs(args):
+    the_list = list()
+    for parg in args:
+        if isinstance(parg, (types.GeneratorType, map, filter)):
+            for sub_parg in parg:
+                the_list.append(sub_parg)
+        else:
+            the_list.append(parg)
+    return the_list
+
 def force_ask(*pargs, **kwargs):
     """Given a variable name, instructs docassemble to ask a question that
     would define the variable, even if the variable has already been
@@ -3215,10 +3254,11 @@ def force_ask(*pargs, **kwargs):
     questions will be asked serially.
 
     """
+    the_pargs = unpack_pargs(pargs)
     if kwargs.get('persistent', True):
-        raise ForcedNameError(*pargs, user_dict=get_user_dict())
+        raise ForcedNameError(*the_pargs, user_dict=get_user_dict())
     else:
-        force_ask_nameerror(pargs[0])
+        force_ask_nameerror(the_pargs[0])
 
 def force_ask_nameerror(variable_name):
     raise NameError("name '" + str(variable_name) + "' is not defined")
@@ -3234,7 +3274,7 @@ def force_gather(*pargs):
     for var_name in ('x', 'i', 'j', 'k', 'l', 'm', 'n'):
         if var_name in the_user_dict:
             the_context[var_name] = the_user_dict[var_name]
-    for variable_name in pargs:
+    for variable_name in unpack_pargs(pargs):
         if variable_name not in [(variable_dict if isinstance(variable_dict, str) else variable_dict['var']) for variable_dict in this_thread.internal['gather']]:
             this_thread.internal['gather'].append(dict(var=variable_name, context=the_context))
     raise ForcedNameError(variable_name, gathering=True)
@@ -3301,9 +3341,16 @@ def qr_code(string, width=None, alt_text=None):
         else:
             return('[QR ' + string + ', ' + width + ', ' + str(alt_text) + ']')
 
+def pkg_resources_resource_filename(package_or_requirement, resource_name):
+    try:
+        result = pkg_resources.resource_filename(package_or_requirement, resource_name)
+    except:
+        return None
+    return result
+
 def standard_template_filename(the_file):
     try:
-        return(pkg_resources.resource_filename(pkg_resources.Requirement.parse('docassemble.base'), "docassemble/base/data/templates/" + str(the_file)))
+        return(pkg_resources_resource_filename(pkg_resources.Requirement.parse('docassemble.base'), "docassemble/base/data/templates/" + str(the_file)))
     except:
         #logmessage("Error retrieving data file\n")
         return(None)
@@ -3326,14 +3373,13 @@ def package_template_filename(the_file, **kwargs):
         if not re.match(r'data/.*', parts[1]):
             parts[1] = 'data/templates/' + parts[1]
         try:
-            return(pkg_resources.resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1]))
+            return(pkg_resources_resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1]))
         except:
             return(None)
     return(None)
 
 def standard_question_filename(the_file):
-    return(pkg_resources.resource_filename(pkg_resources.Requirement.parse('docassemble.base'), "docassemble/base/data/questions/" + str(the_file)))
-    return(None)
+    return(pkg_resources_resource_filename(pkg_resources.Requirement.parse('docassemble.base'), "docassemble/base/data/questions/" + str(the_file)))
 
 def package_data_filename(the_file):
     #logmessage("package_data_filename with: " + str(the_file))
@@ -3361,7 +3407,7 @@ def package_data_filename(the_file):
                 return None
             return(abs_file.path)
         try:
-            result = pkg_resources.resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1])
+            result = pkg_resources_resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1])
         except:
             result = None
     #if result is None or not os.path.isfile(result):
@@ -3374,7 +3420,7 @@ def package_question_filename(the_file):
         if not re.match(r'data/.*', parts[1]):
             parts[1] = 'data/questions/' + parts[1]
         try:
-            return(pkg_resources.resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1]))
+            return(pkg_resources_resource_filename(pkg_resources.Requirement.parse(parts[0]), re.sub(r'\.', r'/', parts[0]) + '/' + parts[1]))
         except:
             return(None)
     return(None)
@@ -3462,7 +3508,7 @@ def process_action():
         return
     #sys.stderr.write("process_action() continuing")
     the_action = this_thread.current_info['action']
-    #logmessage("process_action: action is " + the_action)
+    #logmessage("process_action: action is " + repr(the_action))
     del this_thread.current_info['action']
     #if the_action == '_da_follow_up' and 'action' in this_thread.current_info['arguments']:
     #    this_thread.misc['forgive_missing_question'] = True
@@ -3815,7 +3861,8 @@ def invalidate(*pargs):
 def undefine(*pargs, invalidate=False):
     """Deletes the variable or variables if they exist."""
     vars_to_delete = list()
-    for var in pargs:
+    the_pargs = unpack_pargs(pargs)
+    for var in the_pargs:
         str(var)
         if not isinstance(var, str):
             raise Exception("undefine() must be given a string, not " + repr(var) + ", a " + str(var.__class__.__name__))
@@ -4125,7 +4172,7 @@ def phone_number_in_e164(number, country=None):
     E.164 format.  Returns None if the number could not be so formatted."""
     ensure_definition(number, country)
     if country is None:
-        country = get_country()
+        country = get_country() or 'US'
     use_whatsapp = False
     if isinstance(number, str):
         m = re.search(r'^whatsapp:(.*)', number)
@@ -4145,7 +4192,7 @@ def phone_number_is_valid(number, country=None):
     """Given a phone number and a country code, returns True if the phone number is valid, otherwise False."""
     ensure_definition(number, country)
     if country is None:
-        country = get_country()
+        country = get_country() or 'US'
     if isinstance(number, str):
         m = re.search(r'^whatsapp:(.*)', number)
         if m:
@@ -4161,7 +4208,7 @@ def phone_number_is_valid(number, country=None):
 def phone_number_part(number, part, country=None):
     ensure_definition(number, part, country)
     if country is None:
-        country = get_country()
+        country = get_country() or 'US'
     if isinstance(number, str):
         m = re.search(r'^whatsapp:(.*)', number)
         if m:
@@ -4182,8 +4229,10 @@ def phone_number_formatted(number, country=None):
     the standard format for the country.  Returns None if the number
     could not be so formatted."""
     ensure_definition(number, country)
+    if number.__class__.__name__ == 'DAEmpty':
+        return str(number)
     if country is None:
-        country = get_country()
+        country = get_country() or 'US'
     if isinstance(number, str):
         m = re.search(r'^whatsapp:(.*)', number)
         if m:
@@ -4316,7 +4365,7 @@ def bold(text, default=None):
             return ''
         else:
             return '**' + str(default) + '**'
-    return '**' + str(text) + '**'
+    return '**' + re.sub(r'\*', '', str(text)) + '**'
 
 def italic(text, default=None):
     """Adds Markdown tags to make the text italic if it is not blank."""
@@ -4326,7 +4375,7 @@ def italic(text, default=None):
             return ''
         else:
             return '_' + str(default) + '_'
-    return '_' + str(text) + '_'
+    return '_' + re.sub(r'\_', '', str(text)) + '_'
 
 # def inspector():
 #     frame = inspect.stack()[1][0]
@@ -4704,7 +4753,8 @@ class DALocalFile:
 
 def forget_result_of(*pargs):
     """Resets the user's answer to an embedded code question or mandatory code block."""
-    for id_name in pargs:
+    the_pargs = unpack_pargs(pargs)
+    for id_name in the_pargs:
         key = 'ID ' + id_name
         for key_item in list(this_thread.internal['answers'].keys()):
             if key_item == key or key_item.startswith(key + '|WITH|'):
@@ -4720,7 +4770,7 @@ def reconsider(*pargs):
     """Ensures that the value of one or more variables is freshly calculated."""
     if 'reconsidered' not in this_thread.misc:
         this_thread.misc['reconsidered'] = set()
-    for var in pargs:
+    for var in unpack_pargs(pargs):
         if var in this_thread.misc['reconsidered']:
             continue
         undefine(var)

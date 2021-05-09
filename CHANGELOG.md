@@ -1,5 +1,281 @@
 # Change Log
 
+## [1.2.67] - 2021-05-08
+### Fixed
+- Possible fix to issue with `/interviews` page and `interview_list()`.
+
+## [1.2.66] - 2021-05-04
+### Fixed
+- Suppress Markdown deprecation warning.
+
+## [1.2.65] - 2021-05-04
+### Fixed
+- A very serious security vulnerability was patched. Everyone should
+  upgrade to this version AS SOON AS POSSIBLE (upgrade to 1.2.66,
+  actually).  Upgrade by going to Package Management and clicking
+  Upgrade.  If you are on the 1.1.x series, you can upgrade to 1.1.113
+  with the Upgrade button or by entering `docassemble.webapp==1.1.113`
+  into the PyPI field.  If you are using the `stable` branch, you can
+  upgrade to 1.0.15.
+
+## [1.2.64] - 2021-05-04
+### Added
+- The `popover trigger` feature.
+### Fixed
+- Added validation error on the edit user profile page when changing
+  e-mail address to an address that is a case-insensitive match to an
+  e-mail address that already exists.
+
+## [1.2.63] - 2021-05-02
+### Changed
+- Optimizations for `interview_list()`.
+
+## [1.2.62] - 2021-05-01
+### Changed
+- Optimizations for the restart process.
+
+## [1.2.61] - 2021-05-01
+### Added
+- The `resume_existing` option for `login_url`.
+
+## [1.2.60] - 2021-04-30
+### Added
+- The `multiselect` data type.
+
+## [1.2.59] - 2021-04-28
+### Fixed
+- Problem with `reset_geolocation()`.
+
+## [1.2.58] - 2021-04-27
+### Fixed
+- Bug with `list collect` and checkboxes.
+### Changed
+- The `<fieldset>` containing a question's buttons now has the class
+  `da-button-set`.
+- The `signature_of()` method of the `SigningProcess` class in the
+  signature recipe now has a width parameter.
+
+## [1.2.57] - 2021-04-26
+### Added
+- The `authorize()` method of `DAOAuth`, which adds OAuth2
+  authorization headers to a `DAWeb` object.
+### Changed
+- The `.geolocate()` method has been renamed to `.geocode()` and other
+  associated attributes have also been renamed.  Backwards
+  compatibility will be maintained until the next minor version
+  update.
+### Fixed
+- The `attachment code` specifier now accepts `DAList` objects.
+- Interference between `help` and operation of `show if`.
+
+## [1.2.56] - 2021-04-22
+### Fixed
+- Screen reader issue with lists.
+- Problem with `DATemplate` when used in the context of a DOCX
+  template.
+
+## [1.2.55] - 2021-04-20
+### Added
+- `reload` option for `message()`.
+### Fixed
+- Error with protecting PDFs with password.
+
+## [1.2.54] - 2021-04-15
+### Changed
+- `DAList` and `DASet` methods will now return objects of the same
+  subclass.
+
+## [1.2.53] - 2021-04-12
+### Changed
+- The GitHub integration feature now sets the name of the SSH key to
+  the `appname` followed by the user ID.
+
+## [1.2.52] - 2021-04-11
+### Changed
+- Added mechanism in classes `Person`, etc. for indicating what class
+  should be used for attributes that are objects.
+- Added support for QR codes when filling PDF files.
+### Fixed
+- The `.address_block()` method now supports the `international` and
+  `show_country` keyword parameters.
+
+## [1.2.51] - 2021-04-07
+### Changed
+- Added optimizations for network usage on first page load (requires
+  system update).
+
+## [1.2.50] - 2021-04-04
+### Changed
+- OCRing in background now uses one process per machine (requires
+  system update).
+
+## [1.2.49] - 2021-04-03
+### Fixed
+- Issue with SVM library.
+
+## [1.2.48] - 2021-03-31
+### Fixed
+- Error with SMS interface.
+- Better trapping of unicode errors in case of a YAML error.
+
+## [1.2.47] - 2021-03-26
+### Fixed
+- Enter key on Playground Packages page.
+- Word wrap on buttons.
+
+## [1.2.46] - 2021-03-24
+### Fixed
+- Error with reading zip files.
+- Error when the `complete_attribute` is a `@property`.
+
+## [1.2.45] - 2021-03-19
+### Fixed
+- Error with `allow reordering`.
+
+## [1.2.44] - 2021-03-16
+### Changed
+- The `possessify()` function and the object methods that use it will
+  return a Unicode apostrophe when called from the context of a DOCX
+  template.
+
+## [1.2.43] - 2021-03-15
+### Added
+- The `/api/playground_install` endpoint.
+- The `bold` and `italic` functions as Jinja2 filters.
+### Changed
+- As soon as the container starts, a dummy web server begins listening
+  on port 80 (or `PORT`).  This web server turns off before NGINX
+  starts.
+- Verbose `pip` logs no longer saved to `worker.log`.
+
+## [1.2.42] - 2021-03-13
+### Changed
+- The optional second positional parameter of `noun_plural()` and
+  `noun_singular()` can now be a list, dictionary, set, or tuple, in
+  which case the length is used.
+- Elements with `aria-hidden="true"` or CSS class `sr-exclude` will
+  be ignored by the VoiceRSS screen reader.
+- `force_ask()`, `force_gather()`, `undefine()`, `forget_result_of()`,
+  and `reconsider()` now accept generators as positional parameters.
+- When given `Person` objects, `send_email()` will include names in
+  To, Cc, and Bcc if the names are defined.
+### Fixed
+- A `fields` question with no variable-setting fields or a `continue
+  button field` did not get marked as answered.
+
+## [1.2.41] - 2021-03-09
+### Fixed
+- Bug in 1.2.40.
+
+## [1.2.40] - 2021-03-08
+### Added
+- Support for the `PORT` Docker environment variable, which defaults
+  to port 80.
+
+## [1.2.39] - 2021-03-06
+### Fixed
+- Issues with Word add-in.
+
+## [1.2.38] - 2021-03-04
+### Fixed
+- Default value on combobox fields.
+
+## [1.2.37] - 2021-03-03
+### Fixed
+- Default value on combobox fields.
+
+## [1.2.36] - 2021-03-02
+### Fixed
+- Package install errors not being sent to screen.
+
+## [1.2.35] - 2021-02-27
+### Added
+- The `.item_name()` and `.delitem()` methods of `DAList`.
+- The `.item_name()`, `.delitem()`, `.invalidate_item()`, and
+  `.getitem_fresh()` methods of `DADict`.
+- The `restart` option for `/api/package`.
+
+## [1.2.34] - 2021-02-25
+### Added
+- The `.getattr_fresh()` method.
+### Fixed
+- Bug in `.from_url()`.
+
+## [1.2.33] - 2021-02-20
+### Changed
+- When `datatype` is `password`, autocomplete will be turned off.
+### Fixed
+- `code` with `content file` in `raw` mode.
+- `.get_pdf_fields()` raised exception when no fields present.
+
+## [1.2.32] - 2021-02-17
+### Fixed
+- Issue with logging messages during post-update restart.
+
+## [1.2.31] - 2021-02-16
+### Added
+- The `post` option for `need`.
+### Changed
+- Deleting a package in the Playground will now delete the memory of
+  the last pull of that package.
+
+## [1.2.30] - 2021-02-13
+### Fixed
+- False positive infinite loop detection with `objects` block.
+
+## [1.2.29] - 2021-02-12
+### Fixed
+- Package Management issue with waiting for restart.
+
+## [1.2.28] - 2021-02-09
+### Changed
+- In the question data, `decoration_url` and `decoration_name` have
+  been converted to a `decoration` dictionary.
+### Fixed
+- The `title_case` function now converts its parameter to a string.
+- Package Management issue with waiting for restart.
+
+## [1.2.27] - 2021-02-05
+### Fixed
+- Restored default behavior of not converting to HTML in question
+  data.
+
+## [1.2.26] - 2021-02-04
+### Changed
+- Added `variable_name` to items under `attachments` in the JSON
+  representation of a question.
+### Fixed
+- Removed use of `certbot-auto`.
+
+## [1.2.25] - 2021-01-27
+### Added
+- The `region` parameter under the `google` Configuration directive,
+  for biasing the address autocomplete feature.
+### Fixed
+- Unicode characters in PDF forms were altered if they were not part
+  of `latin1`.
+
+## [1.2.24] - 2021-01-24
+### Not changed
+- The license.  (Just in case you thought the 1/14/2021 @docassemble
+  Twitter thread about the dystopian MIT-SAFE License was real.)
+### Changed
+- The `from_url()` method will now raise an exception if there is an
+  error retrieving the URL.
+- The `avconv` Configuration directive is now called `ffmpeg`.
+- Uploading a video no longer runs a conversion to `.ogg`.
+### Added
+- Option for connecting to a PostgreSQL database using SSL with `db`
+  and other database configurations.  A system update is required to
+  use this feature.
+### Fixed
+- Problem writing error messages to the logs when Mailgun mail sending
+  fails.
+- Error in `pdf_concatenate()` when JavaScript in a PDF is text
+  instead of bytes.
+- Non-graceful failure on Google Drive configuration page when API for
+  obtaining a file listing raises an exception.
+
 ## [1.2.23] - 2021-01-07
 ### Changed
 - Expanded the information available in the data view of a question.
@@ -145,6 +421,12 @@
   Bootstrap theme.
 ### Fixed
 - Issue with user privileges.
+
+## [1.1.113] - 2021-05-05
+### Changed
+- The Upgrade button has been restored but it is non-functional.
+### Fixed
+- Important security vulnerability.
 
 ## [1.1.112] - 2020-11-26
 ### Changed
@@ -917,6 +1199,18 @@
 - The `_attachment` keyword parameter for `url_of()`.
 ### Changed
 - Securing of uploaded filenames less strict.
+
+## [1.0.14] - 2021-05-05
+### Fixed
+- Missing file in setup.py.
+
+## [1.0.13] - 2021-05-04
+### Fixed
+- Suppress Markdown deprecation warning.
+
+## [1.0.12] - 2021-05-04
+### Fixed
+- Important security vulnerability.
 
 ## [1.0.11] - 2020-04-15
 ### Fixed

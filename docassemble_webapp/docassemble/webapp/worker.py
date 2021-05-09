@@ -844,7 +844,7 @@ def error_object(err):
     error_message = str(err)
     error_trace = None
     worker_controller.error_notification(err, message=error_message, trace=error_trace)
-    return(worker_controller.functions.ReturnValue(ok=False, error_message=error_message, error_type=error_type, error_trace=error_trace))
+    return(worker_controller.functions.ReturnValue(ok=False, error_message=error_message, error_type=error_type, error_trace=error_trace, restart=False))
 
 @workerapp.task
 def ocr_finalize(*pargs, **kwargs):
@@ -936,11 +936,19 @@ def make_png_for_pdf(doc, prefix, resolution, user_code, pdf_to_png, page=None):
             return
 
 @workerapp.task
-def reset_server(result):
-    sys.stderr.write("reset_server in worker: starting\n")
+def reset_server(result, run_create=None):
+    sys.stderr.write("reset_server in worker: starting with run_create " + repr(run_create) +  "\n")
     if hasattr(result, 'ok') and not result.ok:
         sys.stderr.write("reset_server in worker: not resetting because result did not succeed.\n")
         return result
+    if not run_create:
+        if not hasattr(worker_controller, 'loaded'):
+            initialize_db()
+        pipe = worker_controller.r.pipeline()
+        pipe.set('da:skip_create_tables', 1)
+        pipe.expire('da:skip_create_tables', 10)
+        sys.stderr.write("reset_server in worker: setting da:skip_create_tables.\n")
+        pipe.execute()
     if USING_SUPERVISOR:
         if re.search(r':(web|celery|all):', container_role):
             if result.hostname == hostname:
@@ -962,28 +970,31 @@ def reset_server(result):
     return result
 
 @workerapp.task
-def update_packages():
+def update_packages(restart=True):
+    start_time = time.time()
     sys.stderr.write("update_packages in worker: starting\n")
     if not hasattr(worker_controller, 'loaded'):
         initialize_db()
-    sys.stderr.write("update_packages in worker: continuing\n")
+    sys.stderr.write("update_packages in worker: continuing after " + str(time.time() - start_time) + " seconds\n")
     try:
         with worker_controller.flaskapp.app_context():
-            sys.stderr.write("update_packages in worker: importing update\n")
+            worker_controller.set_request_active(False)
+            sys.stderr.write("update_packages in worker: importing update after " + str(time.time() - start_time) + " seconds\n")
             import docassemble.webapp.update
-            sys.stderr.write("update_packages in worker: starting update\n")
-            ok, logmessages, results = docassemble.webapp.update.check_for_updates()
-            sys.stderr.write("update_packages in worker: update completed\n")
-            worker_controller.trigger_update(except_for=hostname)
-            sys.stderr.write("update_packages in worker: trigger completed\n")
-            return worker_controller.functions.ReturnValue(ok=ok, logmessages=logmessages, results=results, hostname=hostname)
+            sys.stderr.write("update_packages in worker: starting update after " + str(time.time() - start_time) + " seconds\n")
+            ok, logmessages, results = docassemble.webapp.update.check_for_updates(start_time=start_time, full=restart)
+            sys.stderr.write("update_packages in worker: update completed after " + str(time.time() - start_time) + " seconds\n")
+            if restart:
+                worker_controller.trigger_update(except_for=hostname)
+                sys.stderr.write("update_packages in worker: trigger completed after " + str(time.time() - start_time) + " seconds\n")
+            return worker_controller.functions.ReturnValue(ok=ok, logmessages=logmessages, results=results, hostname=hostname, restart=restart)
     except:
         e = sys.exc_info()[0]
         error_mess = sys.exc_info()[1]
         sys.stderr.write("update_packages in worker: error was " + str(e) + " with message " + str(error_mess) + "\n")
-        return worker_controller.functions.ReturnValue(ok=False, error_message=str(e))
+        return worker_controller.functions.ReturnValue(ok=False, error_message=str(e), restart=False)
     sys.stderr.write("update_packages in worker: all done\n")
-    return worker_controller.functions.ReturnValue(ok=False, error_message="Reached end")
+    return worker_controller.functions.ReturnValue(ok=False, error_message="Reached end", restart=False)
 
 @workerapp.task
 def email_attachments(user_code, email_address, attachment_info, language, subject=None, body=None, html=None):
