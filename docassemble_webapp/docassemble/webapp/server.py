@@ -8446,7 +8446,7 @@ def index(action_argument=None, refer=None):
         else{
           url = daInterviewUrl + "&action=" + encodeURIComponent(btoa(JSON_stringify(data)))
         }
-        $.ajax({
+        return $.ajax({
           type: "GET",
           url: url,
           success: callback,
@@ -8469,7 +8469,7 @@ def index(action_argument=None, refer=None):
         }
         var data = {action: action, arguments: args};
         daSpinnerTimeout = setTimeout(daShowSpinner, 1000);
-        $.ajax({
+        return $.ajax({
           type: "POST",
           url: daInterviewUrl,
           beforeSend: addCsrfHeader,
@@ -8499,7 +8499,7 @@ def index(action_argument=None, refer=None):
         }
         var data = {action: action, arguments: args};
         daSpinnerTimeout = setTimeout(daShowSpinner, 1000);
-        $.ajax({
+        return $.ajax({
           type: "POST",
           url: daInterviewUrl,
           beforeSend: addCsrfHeader,
@@ -9662,7 +9662,7 @@ def index(action_argument=None, refer=None):
         }
       }
       function daRefreshSubmit(){
-        $.ajax({
+        return $.ajax({
           type: "POST",
           url: daInterviewUrl,
           data: 'csrf_token=' + daCsrf + '&ajax=1',
@@ -9852,7 +9852,7 @@ def index(action_argument=None, refer=None):
           }
         }
         //console.log("Doing checkin with " + daChatStatus);
-        $.ajax({
+        return $.ajax({
           type: 'POST',
           url: """ + "'" + url_for('checkin', i=yaml_filename) + "'" + """,
           beforeSend: addCsrfHeader,
@@ -9863,10 +9863,9 @@ def index(action_argument=None, refer=None):
           success: daCheckinCallback,
           dataType: 'json'
         });
-        return true;
       }
       function daCheckout(){
-        $.ajax({
+        return $.ajax({
           type: 'POST',
           url: """ + "'" + url_for('checkout', i=yaml_filename) + "'" + """,
           beforeSend: addCsrfHeader,
@@ -9877,7 +9876,6 @@ def index(action_argument=None, refer=None):
           success: daCheckoutCallback,
           dataType: 'json'
         });
-        return true;
       }
       function daStopCheckingIn(){
         daCheckout();
