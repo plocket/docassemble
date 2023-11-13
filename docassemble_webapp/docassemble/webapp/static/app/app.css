@@ -282,12 +282,12 @@ i.da-chat-inactive:hover {
 
 .daterm {
     cursor: pointer;
-    color: #408E30
+    color: #3C852E;
 }
 
 .daterm:hover {
     cursor: pointer;
-    color: #408E30;
+    color: #3C852E;
     text-decoration: none;
 }
 
