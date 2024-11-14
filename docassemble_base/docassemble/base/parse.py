@@ -1276,7 +1276,7 @@ class InterviewStatus:
                 the_field['uncheck_others'] = True
             elif hasattr(field, 'checkothers') and field.checkothers is not False:
                 the_field['check_others'] = True
-            for key in ('minlength', 'maxlength', 'min', 'max', 'step', 'scale', 'inline', 'inline width', 'rows', 'accept', 'currency symbol', 'field metadata', 'css class', 'address_autocomplete', 'label_above_field', 'floating_label', 'grid', 'item grid', 'pen color', 'file css class'):
+            for key in ('minlength', 'maxlength', 'min', 'max', 'step', 'scale', 'inline', 'inline width', 'rows', 'accept', 'currency symbol', 'field metadata', 'css class', 'address_autocomplete', 'label_above_field', 'floating_label', 'use_div_as_legend', 'grid', 'item grid', 'pen color', 'file css class'):
                 if key in self.extras and field.number in self.extras[key]:
                     if key in ('minlength', 'maxlength', 'min', 'max', 'step'):
                         validation_rules_used.add(key)
@@ -1715,6 +1715,8 @@ class Field:
             self.item_grid = data['item grid']
         if 'floating_label' in data:
             self.floating_label = data['floating_label']
+        if 'use_div_as_legend' in data:
+            self.use_div_as_legend = data['use_div_as_legend']
         if 'max_image_size' in data:
             self.max_image_size = data['max_image_size']
         if 'image_type' in data:
@@ -2260,6 +2262,10 @@ class Question:
                 self.interview.options['hide standard menu'] = data['features']['hide standard menu']
             if 'labels above fields' in data['features'] and isinstance(data['features']['labels above fields'], bool):
                 self.interview.options['labels above'] = data['features']['labels above fields']
+            if 'use div as legend' in data['features']:
+                if not isinstance(data['features']['use div as legend'], bool):
+                    raise DASourceError('"use div as legend" in "features" must be either True or False.' + self.idebug(data))
+                self.interview.options['use div as legend'] = data['features']['use div as legend']
             if 'suppress autofill' in data['features'] and isinstance(data['features']['suppress autofill'], bool):
                 self.interview.options['suppress autofill'] = data['features']['suppress autofill']
             if 'floating labels' in data['features'] and isinstance(data['features']['floating labels'], bool):
@@ -3955,6 +3961,10 @@ class Question:
             else:
                 self.other_fields_used.add(data['continue button field'])
             self.fields_saveas = data['continue button field']
+        if 'use div as legend' in data:
+            if not isinstance(data['use div as legend'], bool):
+                raise DASourceError('"use div as legend" must be either True or False.' + self.idebug(data))
+            self.question.use_div_as_legend = data['use div as legend']
         if 'fields' in data:
             self.question_type = 'fields'
             if isinstance(data['fields'], dict):
@@ -4425,6 +4435,14 @@ class Question:
                             self.find_fields_in(field[key])
                         else:
                             field_info['floating_label'] = bool(field[key])
+                    elif key == 'use div as legend':
+                        if isinstance(field[key], str):
+                            field_info['use_div_as_legend'] = compile(field[key], '<use div as legend expression>', 'eval')
+                            self.find_fields_in(field[key])
+                        elif not isinstance(field[key], bool):
+                            raise DASourceError('"use div as legend" must be either True or False.' + self.idebug(data))
+                        else:
+                            field_info['use_div_as_legend'] = field[key]
                     elif key == 'action' and 'input type' in field and field['input type'] == 'ajax':
                         if not isinstance(field[key], str):
                             raise DASourceError("An action must be plain text" + self.idebug(data))
@@ -6586,6 +6604,15 @@ class Question:
                             extras['floating_label'][field.number] = field.floating_label
                         else:
                             extras['floating_label'][field.number] = eval(field.floating_label, user_dict)
+                    if hasattr(field, 'use_div_as_legend'):
+                        if 'use_div_as_legend' not in extras:
+                            extras['use_div_as_legend'] = {}
+                        if isinstance(field.use_div_as_legend, bool):
+                            extras['use_div_as_legend'][field.number] = field.use_div_as_legend
+                        else:
+                            extras['use_div_as_legend'][field.number] = eval(field.use_div_as_legend, user_dict)
+                            if not isinstance(extras['use_div_as_legend'][field.number], bool):
+                                raise DASourceError('A "use div as legend" expression must evaluate to True or False.' + self.idebug(data))
                     if hasattr(field, 'max_image_size') and hasattr(field, 'datatype') and field.datatype in ('file', 'files', 'camera', 'user', 'environment'):
                         extras['max_image_size'] = eval(field.max_image_size['compute'], user_dict)
                     if hasattr(field, 'image_type') and hasattr(field, 'datatype') and field.datatype in ('file', 'files', 'camera', 'user', 'environment'):

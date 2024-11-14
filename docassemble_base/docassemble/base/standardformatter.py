@@ -5,6 +5,7 @@ import random
 import codecs
 import datetime
 import locale
+import uuid
 from io import StringIO
 from html.parser import HTMLParser
 from docassemble.base.functions import word, get_currency_symbol, comma_and_list, server, custom_types, get_locale
@@ -566,10 +567,16 @@ def help_wrap(content, helptext, status):
     return help_wrapper % (content, noquote(markdown_to_html(helptext, trim=True, status=status, do_terms=False)))
 
 
-def field_item(field, grid_info, pre=None, row=True, floating=False, classes=None, hidden_message=None, label_for=None, label_classes=None, label_content=None, grid_type=None, content_classes=None, content=None, side_note=None, under_text=None, use_fieldset=0, required=False):
+def field_item(field, grid_info, pre=None, row=True, floating=False, classes=None, hidden_message=None, label_for=None, label_classes=None, label_content=None, grid_type=None, content_classes=None, content=None, side_note=None, under_text=None, use_fieldset=0, required=False, use_div_as_legend=False):
     if use_fieldset:
+        if label_for:
+            fieldset_label = label_for + '_fieldset_label'
+        else:
+            fieldset_label =  str(uuid.uuid4()) + '_uuid_fieldset_label'
         enclosing_type = 'fieldset'
-        label_type = 'legend'
+        aria_labelled_by = 'aria-labelledby="' + fieldset_label + '"'
+        label_type = 'div' if use_div_as_legend else 'legend'
+        label_id = 'id="' + fieldset_label + '"'
         if required:
             aria_req = 'aria-required="true" '
         else:
@@ -578,7 +585,9 @@ def field_item(field, grid_info, pre=None, row=True, floating=False, classes=Non
             aria_req += 'role="radiogroup" '
     else:
         enclosing_type = 'div'
+        aria_labelled_by = ''
         label_type = 'label'
+        label_id = ''
         aria_req = ''
     if grid_info['_enabled']:
         grid_number = grid_info[field.number]['grid']
@@ -596,7 +605,7 @@ def field_item(field, grid_info, pre=None, row=True, floating=False, classes=Non
                 label_style = ''
             if label_classes:
                 all_label_classes.append(label_classes)
-            label_text = '\n                  <' + label_type + label_style
+            label_text = '\n                  <' + label_type + ' ' + label_id + label_style
             if label_for:
                 label_text += label_for
             if len(all_label_classes) > 0:
@@ -606,12 +615,12 @@ def field_item(field, grid_info, pre=None, row=True, floating=False, classes=Non
             label_text += '</' + label_type + '>'
         else:
             if use_fieldset:
-                label_text = '<legend class="visually-hidden">' + hidden_message + '</legend>'
+                label_text = '<' + label_type + ' ' + label_id + ' class="visually-hidden">' + hidden_message + '</' + label_type + '>'
             else:
                 label_text = None
         grid_label_above = label_text and not floating and not row and grid_type is None
         # update_parent_classes(fieldlist, grid_info[field.number]['index'], classes)
-        output = '                <' + enclosing_type + ' ' + aria_req
+        output = '                <' + enclosing_type + ' ' + aria_req + ' ' + aria_labelled_by
         if pre:
             output += pre
         all_classes = ['da-grid-container']
@@ -699,7 +708,7 @@ def field_item(field, grid_info, pre=None, row=True, floating=False, classes=Non
                 all_label_classes.append('col-' + daconfig['grid classes']['label width'] + ' col-form-label da-form-label datext-right')
             if label_classes:
                 all_label_classes.append(label_classes)
-            label_text = '\n                  <' + label_type
+            label_text = '\n                  <' + label_type + ' ' + label_id
             if label_for:
                 label_text += label_for
             if len(all_label_classes) > 0:
@@ -709,10 +718,10 @@ def field_item(field, grid_info, pre=None, row=True, floating=False, classes=Non
             label_text += '</' + label_type + '>'
         else:
             if use_fieldset:
-                label_text = '<legend class="visually-hidden">' + str(hidden_message) + '</legend>'
+                label_text = '<' + label_type + ' ' + label_id + ' class="visually-hidden">' + str(hidden_message) + '</' + label_type + '>'
             else:
                 label_text = None
-        output = '                <' + enclosing_type + ' ' + aria_req
+        output = '                <' + enclosing_type + ' ' + aria_req + ' ' + aria_labelled_by
         if pre:
             output += pre
         all_classes = ['da-container']
@@ -776,6 +785,23 @@ def sub_indices(the_var, special_vars):
     return the_var
 
 
+def get_highest_priority_value(values=[], excluded_values=[], default_value=None):
+    """Get the first value that is not an excluded value.
+
+    Args:
+        values (list): The values in order of highest to lowest precedence.
+            (default is [])
+        excluded_values (list): Invalid values that should not cause a return.
+            (default is [])
+        default_value (any): The value to return if every given value gets
+            excluded (default is None)
+    """
+    for value in values:
+        if not value in excluded_values:
+            return value
+    return default_value
+
+
 def as_html(status, debug, root, validation_rules, field_error, the_progress_bar, steps):
     decorations = []
     audio_text = ''
@@ -799,6 +825,9 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         autofill = ''
     labels_above = status.question.interview.options.get('labels above', False)
     floating_labels = status.question.interview.options.get('floating labels', False)
+    # Is status.question actually a field setting?
+    use_div_as_legend = get_highest_priority_value(values=[(status.question.use_div_as_legend if hasattr(status.question, 'use_div_as_legend') else None), status.question.interview.options.get('use div as legend', None), daconfig.get('use div as legend', None)], excluded_values=[None], default_value=None)
+    legend_type = 'div' if use_div_as_legend else 'legend'
     if 'script' in status.extras and status.extras['script'] is not None:
         status.extra_scripts.append(status.extras['script'])
     if 'css' in status.extras and status.extras['css'] is not None:
@@ -969,9 +998,11 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         output += "\n              </div>"
         if status.submit:
             output += '                <div class="d-none d-sm-block da-d-sm-block">' + markdown_to_html(status.submit, trim=False, status=status) + '</div>\n'
+        # default_legend_id = buttons_fieldset_label
+        default_legend_id = str(uuid.uuid4()) + '_uuid_fieldset_label'
         output += """
-              <fieldset class="da-button-set d-none d-sm-block da-d-sm-block da-signature">
-                <legend class="visually-hidden">""" + word('Press one of the following buttons:') + """</legend>
+              <fieldset aria-labelledby=\"""" + default_legend_id + """" class="da-button-set d-none d-sm-block da-d-sm-block da-signature">
+                <""" + legend_type + """ id=\"""" + default_legend_id + """" class="visually-hidden">""" + word('Press one of the following buttons:') + """</""" + legend_type + """>
                 <div class="dasigbuttons mt-3">""" + back_button + additional_buttons_before + """
                   <a href="#" role="button" class="btn """ + BUTTON_STYLE + continue_button_color + ' ' + BUTTON_CLASS + """ dasigsave">""" + continue_label + """</a>
                   <a href="#" role="button" class="btn """ + BUTTON_STYLE + BUTTON_COLOR_CLEAR + ' ' + BUTTON_CLASS + """ dasigclear">""" + word('Clear') + """</a>""" + additional_buttons_after + help_button + """
@@ -983,7 +1014,7 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
             saveas_part = '<input type="hidden" name="_save_as" value="' + escape_id(status.question.fields[0].saveas) + '"/>'
         else:
             saveas_part = ''
-        output += '            </div>\n            <form aria-labelledBy="dasigtitle" action="' + root + '" id="dasigform" method="POST">' + saveas_part + '<input type="hidden" id="da_sig_required" value="' + ('1' if status.extras['required'][0] else '0') + '"/><input type="hidden" id="da_ajax" name="ajax" value="0"/><input type="hidden" id="da_the_image" name="_the_image" value=""/><input type="hidden" id="da_success" name="_success" value="0"/>'
+        output += '            </div>\n            <form aria-labelledby="dasigtitle" action="' + root + '" id="dasigform" method="POST">' + saveas_part + '<input type="hidden" id="da_sig_required" value="' + ('1' if status.extras['required'][0] else '0') + '"/><input type="hidden" id="da_ajax" name="ajax" value="0"/><input type="hidden" id="da_the_image" name="_the_image" value=""/><input type="hidden" id="da_success" name="_success" value="0"/>'
         output += tracker_tag(status)
         output += '            </form>\n'
         output += '            <div class="d-block d-sm-none da-d-sm-none"><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br></div>'
@@ -998,7 +1029,7 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         if video_text:
             output += indent_by(video_text, 12)
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-' + status.question.question_type + '">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+        output += '                <fieldset aria-labelledby="' + escape_id(status.question.fields[0].saveas) + '_buttons_fieldset_label" class="da-button-set da-field-' + status.question.question_type + '">\n                  <' + legend_type + ' id="' + escape_id(status.question.fields[0].saveas) +'_buttons_fieldset_label" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
         output += back_button + additional_buttons_before + '\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_YES + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="True">' + status.question.yes() + '</button>\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_NO + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="False">' + status.question.no() + '</button>'
         if status.question.question_type == 'yesnomaybe':
             output += '\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_MAYBE + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="None">' + markdown_to_html(status.question.maybe(), trim=True, do_terms=False, status=status) + '</button>'
@@ -1026,7 +1057,7 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         if video_text:
             output += indent_by(video_text, 12)
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-' + status.question.question_type + '">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+        output += '                <fieldset aria-labelledby="' + escape_id(status.question.fields[0].saveas) + '_buttons_fieldset_label" class="da-button-set da-field-' + status.question.question_type + '">\n                  <' + legend_type + ' id="' + escape_id(status.question.fields[0].saveas) +'_buttons_fieldset_label" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
         output += back_button + additional_buttons_before + '\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_YES + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="False">' + status.question.yes() + '</button>\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_NO + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="True">' + status.question.no() + '</button>'
         if status.question.question_type == 'noyesmaybe':
             output += '\n                  <button class="btn ' + BUTTON_STYLE + BUTTON_COLOR_MAYBE + ' ' + BUTTON_CLASS + '" name="' + escape_id(status.question.fields[0].saveas) + '" type="submit" value="None">' + status.question.maybe() + '</button>'
@@ -1154,12 +1185,15 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         else:
             resume_button_label = word('Resume')
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
         if hasattr(status.question, 'review_saveas'):
+            output += '                <fieldset aria-labelledby="' + escape_id(safeid(status.question.review_saveas)) + '_buttons_fieldset_label" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + escape_id(safeid(status.question.review_saveas)) + '_buttons_fieldset_label" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before
             output += '\n                <button type="submit" class="btn ' + BUTTON_STYLE + continue_button_color + ' ' + BUTTON_CLASS + '" ' + show_continue_button + disable_continue_button + 'name="' + escape_id(safeid(status.question.review_saveas)) + '" value="True">' + continue_label + '</button>'
             output += additional_buttons_after + help_button + '\n                </fieldset>\n'
         else:
+            # default_legend_id = buttons_fieldset_label
+            default_legend_id = str(uuid.uuid4()) + '_uuid_fieldset_label'
+            output += '                <fieldset aria-labelledby="' + default_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + default_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before
             output += '\n                <button class="btn ' + BUTTON_STYLE + continue_button_color + ' ' + BUTTON_CLASS + '" ' + show_continue_button + disable_continue_button + 'type="submit">' + resume_button_label + '</button>'
             output += additional_buttons_after + help_button + '\n                </fieldset>\n'
@@ -1250,6 +1284,11 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
                         raise DAException("address autocomplete must refer to a boolean value or a dictionary of options")
         seen_extra_header = False
         for field in field_list:
+            if hasattr(field, 'use_div_as_legend'):
+                use_div_as_legend_for_field = get_highest_priority_value(values=[status.extras['use_div_as_legend'][field.number], use_div_as_legend], excluded_values=[None], default_value=False)
+                legend_type = 'div' if use_div_as_legend_for_field else 'legend'
+            else:
+                use_div_as_legend_for_field = use_div_as_legend
             if hasattr(field, 'collect_type'):
                 data_def = 'data-collectnum="' + str(field.collect_number) + '" data-collecttype="' + field.collect_type + '" '
                 class_def = ' dacollect' + field.collect_type
@@ -1803,49 +1842,49 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
                 else:
                     label_for = ''
                 if status.labels[field.number] == 'no label':
-                    fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=class_def + side_note_parent + req_tag + field_class + ' da-field-container-nolabel', hidden_message=word("Answer here"), grid_type='wide', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                    fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=class_def + side_note_parent + req_tag + field_class + ' da-field-container-nolabel', hidden_message=word("Answer here"), grid_type='wide', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                     # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group row' + class_def + '' + side_note_parent + req_tag + field_class + ' da-field-container-nolabel">\n                  <span class="visually-hidden">' + word("Answer here") + '</span>\n                  <div class="col dawidecol dafieldpart">' + input_for(status, field) + '</div>' + side_note + '\n                </div>\n')
                 elif hasattr(field, 'inputtype') and field.inputtype in ['yesnowide', 'noyeswide']:
-                    fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes='dayesnospacing ' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), grid_type='wide', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                    fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes='dayesnospacing ' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), grid_type='wide', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                     # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group row dayesnospacing ' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def + '">\n                  <span class="visually-hidden">' + word("Check if applicable") + '</span>\n                  <div class="col dawidecol dafieldpart">' + input_for(status, field) + '</div>' + side_note + '\n                </div>\n')
                 elif floating_labels or (hasattr(field, 'floating_label') and status.extras['floating_label'][field.number]):
                     if (hasattr(field, 'datatype') and field.datatype in ['file', 'files', 'camera', 'user', 'environment', 'camcorder', 'microphone']):
                         if status.labels[field.number] == '':
-                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         else:
-                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, label_classes='form-label da-top-label', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, label_classes='form-label da-top-label', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                     else:
                         if hasattr(field, 'inputtype') and field.inputtype in ['yesno', 'noyes']:
-                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), grid_type='offset', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, label_content='', use_fieldset=use_fieldset, required=is_required))
+                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), grid_type='offset', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, label_content='', use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                             # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def + '">\n                  <span class="visually-hidden">' + word("Check if applicable") + '</span>\n                  <div class="dafieldpart">' + input_for(status, field) + side_note + '</div>\n                </div>\n')
                         elif status.labels[field.number] == '':
-                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='da-form-group' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='da-form-group' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                             # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def + '">\n                  <span class="visually-hidden">' + word("Answer here") + '</span>\n                  <div class="dafieldpart">' + input_for(status, field) + side_note + '</div>\n                </div>\n')
                         else:
                             floating_label = markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True)
                             # logmessage("field is " + repr(field.number) + " and status labels is " + repr(status.labels[field.number]))
                             # logmessage("field is " + repr(field.number) + " and floating_label is " + repr(floating_label))
-                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, floating=True, classes=side_note_parent + req_tag + field_class + class_def, content=input_for(status, field, floating_label=strip_quote(to_text(floating_label, {}, []).strip())), side_note=side_note, label_for=label_for, label_content=floating_label, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                            fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, floating=True, classes=side_note_parent + req_tag + field_class + class_def, content=input_for(status, field, floating_label=strip_quote(to_text(floating_label, {}, []).strip())), side_note=side_note, label_for=label_for, label_content=floating_label, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                             # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group-floating form-floating mb-3' + side_note_parent + req_tag + field_class + class_def + '">\n                  ' + input_for(status, field, floating_label=strip_quote(to_text(floating_label, {}, []).strip())) + side_note + '\n                  <label ' + label_for + '>' + floating_label + '</label>\n                </div>\n')
                 elif labels_above or (hasattr(field, 'label_above_field') and status.extras['label_above_field'][field.number]):
                     if hasattr(field, 'inputtype') and field.inputtype in ['yesno', 'noyes']:
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes='dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def, hidden_message=word("Check if applicable"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group dayesnospacing' + side_note_parent + field_class + ' da-field-container-nolabel' + class_def + '">\n                  <span class="visually-hidden">' + word("Check if applicable") + '</span>\n                  <div class="dafieldpart">' + input_for(status, field) + side_note + '</div>\n                </div>\n')
                     elif status.labels[field.number] == '':
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def + '">\n                  <span class="visually-hidden">' + word("Answer here") + '</span>\n                  <div class="dafieldpart">' + input_for(status, field) + side_note + '</div>\n                </div>\n')
                     else:
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, label_classes='form-label da-top-label', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, row=False, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, label_classes='form-label da-top-label', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group' + side_note_parent + req_tag + field_class + class_def + '">\n                  <label class="form-label da-top-label"' + label_for + '>' + markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end + '</label>\n                  <div class="dafieldpart">' + input_for(status, field) + side_note + '</div>\n                </div>\n')
                 else:
                     if hasattr(field, 'inputtype') and field.inputtype in ['yesno', 'noyes']:
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes='dayesnospacing' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Check if applicable"), grid_type='offset', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes='dayesnospacing' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Check if applicable"), grid_type='offset', content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group row dayesnospacing' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def + '"><span  class="visually-hidden">' + word("Check if applicable") + '</span><div class="offset-' + daconfig['grid classes']['label width'] + ' col-' + daconfig['grid classes']['field width'] + ' dafieldpart">' + input_for(status, field) + '</div>' + side_note + '</div>\n')
                     elif status.labels[field.number] == '':
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), grid_type='offset', content_classes='dafieldpart danolabel', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def, hidden_message=word("Answer here"), grid_type='offset', content_classes='dafieldpart danolabel', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group row' + side_note_parent + req_tag + field_class + ' da-field-container-emptylabel' + class_def + '"><span class="visually-hidden">' + word("Answer here") + '</span><div class="offset-' + daconfig['grid classes']['label width'] + ' col-' + daconfig['grid classes']['field width'] + ' dafieldpart danolabel">' + input_for(status, field) + '</div>' + side_note + '</div>\n')
                     else:
-                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, grid_type='horizontal', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required))
+                        fieldlist.append(field_item(field, grid_info, pre=style_def + data_def, classes=side_note_parent + req_tag + field_class + class_def, label_for=label_for, grid_type='horizontal', label_content=markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end, content_classes='dafieldpart', content=input_for(status, field), side_note=side_note, under_text=under_text, use_fieldset=use_fieldset, required=is_required, use_div_as_legend=use_div_as_legend_for_field))
                         # fieldlist.append('                <div ' + style_def + data_def + 'class="da-form-group row' + side_note_parent + req_tag + field_class + class_def + '"><label' + label_for + ' class="col-' + daconfig['grid classes']['label width'] + ' col-form-label da-form-label datext-right">' + markdown_to_html(status.labels[field.number], trim=True, status=status, strip_newlines=True) + helptext_start + helptext_end + '</label><div class="col-' + daconfig['grid classes']['field width'] + ' dafieldpart">' + input_for(status, field) + '</div>' + side_note + '</div>\n')
             if grid_info['_enabled'] and grid_info[field.number]['end']:
                 fieldlist.append('                </div>\n')
@@ -1882,12 +1921,15 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         if null_question:
             output += '                <input type="hidden" name="_null_question" value="1" />\n'
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
         if hasattr(status.question, 'fields_saveas'):
+            output += '                <fieldset aria-labelledby="' + escape_id(safeid(status.question.fields_saveas)) + '_buttons_fieldset_label" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + escape_id(safeid(status.question.fields_saveas)) + '_buttons_fieldset_label" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before
             output += '\n                <button type="submit" class="btn ' + BUTTON_CLASS + ' ' + BUTTON_STYLE + continue_button_color + '" ' + show_continue_button + disable_continue_button + 'name="' + escape_id(safeid(status.question.fields_saveas)) + '" value="True">' + continue_label + '</button>'
             output += additional_buttons_after + help_button + '\n                </fieldset>\n'
         else:
+            # default_legend_id = buttons_fieldset_label
+            default_legend_id = str(uuid.uuid4()) + '_uuid_fieldset_label'
+            output += '                <fieldset aria-labelledby="' + default_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + default_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before
             output += '\n                  <button class="btn ' + BUTTON_CLASS + ' ' + BUTTON_STYLE + continue_button_color + '" ' + show_continue_button + disable_continue_button + 'type="submit">' + continue_label + '</button>'
             output += additional_buttons_after + help_button + '\n                </fieldset>\n'
@@ -1917,7 +1959,7 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         if video_text:
             output += indent_by(video_text, 12)
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+        output += '                <fieldset aria-labelledby="' + escape_id(status.question.fields[0].saveas) + '_buttons_fieldset_label" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + escape_id(status.question.fields[0].saveas) + '_buttons_fieldset_label" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
         output += back_button + additional_buttons_before
         output += '\n                <button type="submit" class="btn ' + BUTTON_CLASS + ' ' + BUTTON_STYLE + continue_button_color + '" ' + show_continue_button + disable_continue_button + 'name="' + escape_id(status.question.fields[0].saveas) + '" value="True">' + continue_label + '</button>'
         output += additional_buttons_after + help_button + '\n                </fieldset>\n'
@@ -1950,12 +1992,14 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         validation_rules['errorElement'] = "span"
         validation_rules['errorLabelContainer'] = "#daerrorcontainer"
         if status.question.question_variety in ["radio", "dropdown", "combobox"]:
+            radio_legend_id = str(uuid.uuid4()) + '_uuid_fieldset_label'
             if hasattr(status.question.fields[0], 'saveas'):
                 varnames[safeid('_field_' + str(status.question.fields[0].number))] = status.question.fields[0].saveas
+                radio_legend_id = escape_id(status.question.fields[0].saveas) + '_fieldset_label'
             inner_fieldlist = []
             if status.question.question_variety == "radio":
                 verb = 'check'
-                output += '                <fieldset class="da-field-' + status.question.question_variety + '">\n                  <legend class="visually-hidden">' + word("Choices (choose one):") + "</legend>\n"
+                output += '                <fieldset aria-labelledby="' + radio_legend_id + '" class="da-field-' + status.question.question_variety + '">\n                  <' + legend_type + ' id="' + radio_legend_id + '" class="visually-hidden">' + word("Choices (choose one):") + '</' + legend_type + '>\n'
             else:
                 verb = 'select'
                 if status.question.question_variety == "dropdown":
@@ -2103,14 +2147,16 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
             if status.question.question_variety == "radio":
                 output += "                </fieldset>\n"
             output += status.submit
-            output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+            buttons_legend_id = str(uuid.uuid4()) + '_uuid_buttons_fieldset_label'
+            output += '                <fieldset aria-labelledby="' + buttons_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + buttons_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before + '\n'
             output += '                  <button class="btn ' + BUTTON_CLASS + ' ' + BUTTON_STYLE + continue_button_color + '" ' + show_continue_button + disable_continue_button + 'type="submit">' + continue_label + '</button>'
             output += additional_buttons_after + help_button + '\n'
             output += '                </fieldset>\n'
         else:
+            buttons_legend_id = str(uuid.uuid4()) + '_uuid_buttons_fieldset_label'
             output += status.submit
-            output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+            output += '                <fieldset aria-labelledby="' + buttons_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + buttons_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before + '\n'
             if hasattr(status.question.fields[0], 'saveas'):
                 if hasattr(status.question.fields[0], 'has_code') and status.question.fields[0].has_code:
@@ -2228,7 +2274,8 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
             output += indent_by(video_text, 12)
         if back_button != '' or help_button != '' or additional_buttons_after != '' or additional_buttons_before != '':
             output += status.submit
-            output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+            buttons_legend_id = str(uuid.uuid4()) + '_uuid_buttons_fieldset_label'
+            output += '                <fieldset aria-labelledby="' + buttons_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + buttons_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
             output += back_button + additional_buttons_before + additional_buttons_after + help_button + '</fieldset>\n'
         output += help_button_area
         if showUnderText:
@@ -2242,7 +2289,8 @@ def as_html(status, debug, root, validation_rules, field_error, the_progress_bar
         if video_text:
             output += indent_by(video_text, 12)
         output += status.submit
-        output += '                <fieldset class="da-button-set da-field-buttons">\n                  <legend class="visually-hidden">' + word('Press one of the following buttons:') + '</legend>'
+        buttons_legend_id = str(uuid.uuid4()) + '_uuid_buttons_fieldset_label'
+        output += '                <fieldset aria-labelledby="' + buttons_legend_id + '" class="da-button-set da-field-buttons">\n                  <' + legend_type + ' id="' + buttons_legend_id + '" class="visually-hidden">' + word('Press one of the following buttons:') + '</' + legend_type + '>'
         output += back_button + additional_buttons_before
         output += '\n                <button class="btn ' + BUTTON_CLASS + ' ' + BUTTON_STYLE + continue_button_color + '" ' + show_continue_button + disable_continue_button + 'type="submit">' + continue_label + '</button>'
         output += additional_buttons_after + help_button + '\n                </fieldset>\n'
@@ -3006,7 +3054,7 @@ def input_for(status, field, embedded=False, floating_label=None):
                     ischecked = ''
                     all_checked = False
                 if embedded:
-                    inner_fieldlist.append('<input aria-label="' + formatted_item + '" class="dacheckbox-embedded dafield' + str(field.number) + ' danon-nota-checkbox' + css_class + '" data-cbtype="' + cbtype + '"' + ' data-cbvalue=' + myb64quote(str(pair['key'])) + 'id="' + escape_id(saveas_string) + '_' + str(id_index) + '" name="' + inner_field + '" type="checkbox" value="True"' + ischecked + disable_others_data + disabled_attr + '/>&nbsp;<label class="form-label" for="' + escape_id(saveas_string) + '_' + str(id_index) + '" />' + the_icon + formatted_item + '</label>')
+                    inner_fieldlist.append('<input aria-label="' + formatted_item + '" class="dacheckbox-embedded dafield' + str(field.number) + ' danon-nota-checkbox' + css_class + '" data-cbtype="' + cbtype + '"' + ' data-cbvalue=' + myb64quote(str(pair['key'])) + ' id="' + escape_id(saveas_string) + '_' + str(id_index) + '" name="' + inner_field + '" type="checkbox" value="True"' + ischecked + disable_others_data + disabled_attr + '/>&nbsp;<label class="form-label" for="' + escape_id(saveas_string) + '_' + str(id_index) + '" />' + the_icon + formatted_item + '</label>')
                 else:
                     inner_fieldlist.append(item_grid_start + help_wrap('<input aria-label="' + formatted_item + '" alt="' + formatted_item + '" data-color="' + css_color + '" data-labelauty="' + my_escape(the_icon) + formatted_item + '|' + my_escape(the_icon) + formatted_item + '" class="' + 'dafield' + str(field.number) + ' danon-nota-checkbox da-to-labelauty checkbox-icon' + extra_checkbox + css_class + '"' + ' data-cbtype="' + cbtype + '"' + ' data-cbvalue=' + myb64quote(str(pair['key'])) + title_text + ' id="' + escape_id(saveas_string) + '_' + str(id_index) + '" name="' + inner_field + '" type="checkbox" value="True"' + ischecked + disable_others_data + disabled_attr + ' />', helptext, status) + item_grid_end)
                 id_index += 1
